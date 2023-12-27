@@ -24,6 +24,7 @@ endif()
 option(ram_install "Generate library install target" OFF)
 option(ram_build_exe "Build executable" ${RAM_MAIN_PROJECT})
 option(ram_build_tests "Build unit tests" ${RAM_MAIN_PROJECT})
+option(ram_build_benchmarks "Build microbenchmarks" ${RAM_MAIN_PROJECT})
 option(ram_addres_sanitize
        "Build ram with ASAN support in Debug and RelWithDebInfo builds."
        ${RAM_MAIN_PROJECT})
@@ -102,6 +103,23 @@ if(ram_build_tests)
   endif()
 endif()
 
+if(ram_build_benchmarks)
+  find_package(benchmark 1.8.3 QUIET)
+  if(NOT benchmark)
+    FetchContent_Declare(
+      benchmark
+      GIT_REPOSITORY https://github.com/google/benchmark
+      GIT_TAG v1.8.3)
+
+    FetchContent_GetProperties(benchmark)
+    if(NOT benchmark_POPULATED)
+      FetchContent_Populate(benchmark)
+      add_subdirectory(${benchmark_SOURCE_DIR} ${benchmark_BINARY_DIR}
+                       EXCLUDE_FROM_ALL)
+    endif()
+  endif()
+endif()
+
 add_library(ram src/algorithm.cpp src/minimizer_engine.cpp)
 add_library(ram::ram ALIAS ram)
 
@@ -174,5 +192,14 @@ if(ram_build_tests)
 
   target_compile_definitions(
     ram_test
+    PRIVATE TEST_DATA="${PROJECT_SOURCE_DIR}/test/data/sample.fasta.gz")
+endif()
+
+if(ram_build_benchmarks)
+  add_executable(ram_benchmark benchmark/ram_benchmark.cpp)
+
+  target_link_libraries(ram_benchmark benchmark ram)
+  target_compile_definitions(
+    ram_benchmark
     PRIVATE TEST_DATA="${PROJECT_SOURCE_DIR}/test/data/sample.fasta.gz")
 endif()

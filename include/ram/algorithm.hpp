@@ -1,5 +1,5 @@
-#ifndef RAM_UTIL_HPP_
-#define RAM_UTIL_HPP_
+#ifndef RAM_ALGORITHM_HPP_
+#define RAM_ALGORITHM_HPP_
 
 #include <algorithm>
 #include <concepts>
@@ -57,4 +57,4 @@ inline void RadixSort(std::span<T> values, std::uint8_t max_bits, Proj proj) {
 
 }  // namespace ram
 
-#endif  // RAM_UTIL_HPP_
+#endif  // RAM_ALGORITHM_HPP_

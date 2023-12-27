@@ -5,7 +5,7 @@
 #include <deque>
 #include <stdexcept>
 
-#include "ram/util.hpp"
+#include "ram/algorithm.hpp"
 
 namespace ram {
 

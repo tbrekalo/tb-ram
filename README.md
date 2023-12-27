@@ -80,8 +80,8 @@ target_link_libraries(<target> ram::ram)
 
 #### Dependencies
 
-- gcc 4.8+ | clang 3.5+
-- cmake 3.11+
+- gcc 12.0+ | clang 17.0+
+- cmake 3.20+
 - pthread
 - (ram_exe)(ram_test) zlib 1.2.8+
 

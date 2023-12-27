@@ -140,11 +140,6 @@ class MinimizerEngine {
   std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
                                       std::vector<Match>&& matches) const;
 
-  template <typename RandomAccessIterator, typename Compare>
-  static void RadixSort(RandomAccessIterator first, RandomAccessIterator last,
-                        std::uint8_t max_bits,
-                        Compare comp);  //  unary comparison function
-
   template <typename Compare>
   static std::vector<std::uint64_t> LongestSubsequence(
       std::vector<Match>::const_iterator first,

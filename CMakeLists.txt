@@ -120,7 +120,7 @@ if(ram_build_benchmarks)
   endif()
 endif()
 
-add_library(ram src/algorithm.cpp src/minimizer_engine.cpp src/types.cpp)
+add_library(ram src/algorithm.cpp src/types.cpp)
 add_library(ram::ram ALIAS ram)
 
 target_include_directories(

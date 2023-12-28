@@ -85,4 +85,119 @@ std::vector<Kmer> Minimize(
   return dst;
 }
 
+std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
+                                    std::vector<Match>&& matches,
+                                    ChainConfig config) {
+  RadixSort(std::span<Match>(matches), 64, MatchGroupProjection);
+  matches.emplace_back(-1, -1);  // stop dummy
+
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> intervals;
+  for (std::uint64_t i = 1, j = 0; i < matches.size(); ++i) {  // NOLINT
+    if (matches[i].group - matches[j].group > config.bandwidth) {
+      if (i - j >= 4) {
+        if (!intervals.empty() && intervals.back().second > j) {  // extend
+          intervals.back().second = i;
+        } else {  // new
+          intervals.emplace_back(j, i);
+        }
+      }
+      ++j;
+      while (j < i && matches[i].group - matches[j].group > config.bandwidth) {
+        ++j;
+      }
+    }
+  }
+
+  std::vector<biosoup::Overlap> dst;
+  for (const auto& it : intervals) {
+    std::uint64_t j = it.first;
+    std::uint64_t i = it.second;
+
+    if (i - j < config.chain) {
+      continue;
+    }
+
+    RadixSort(std::span(matches.begin() + j, matches.begin() + i), 64,
+              MatchPositionProjection);
+
+    std::uint64_t strand = matches[j].strand();
+
+    std::vector<std::uint64_t> indices;
+    if (strand) {                         // same strand
+      indices = LongestMatchSubsequence(  // increasing
+          std::span(matches.cbegin() + j, matches.cbegin() + i),
+          [](std::uint32_t lhs, std::uint32_t rhs) noexcept -> bool {
+            return lhs < rhs;
+          });
+    } else {                              // different strand
+      indices = LongestMatchSubsequence(  // decreasing
+          std::span(matches.cbegin() + j, matches.cbegin() + i),
+          [](std::uint32_t lhs, std::uint32_t rhs) noexcept -> bool {
+            return lhs > rhs;
+          });
+    }
+
+    if (indices.size() < config.chain) {
+      continue;
+    }
+
+    indices.emplace_back(matches.size() - 1 - j);  // stop dummy from above
+    for (std::uint64_t k = 1, l = 0; k < indices.size(); ++k) {
+      if (matches[j + indices[k]].lhs_position() -
+              matches[j + indices[k - 1]].lhs_position() >
+          config.gap) {
+        if (k - l < config.chain) {
+          l = k;
+          continue;
+        }
+
+        std::uint32_t lhs_matches = 0;
+        std::uint32_t lhs_begin = 0;
+        std::uint32_t lhs_end = 0;
+        std::uint32_t rhs_matches = 0;
+        std::uint32_t rhs_begin = 0;
+        std::uint32_t rhs_end = 0;
+
+        for (std::uint64_t m = l; m < k; ++m) {
+          std::uint32_t lhs_pos = matches[j + indices[m]].lhs_position();
+          if (lhs_pos > lhs_end) {
+            lhs_matches += lhs_end - lhs_begin;
+            lhs_begin = lhs_pos;
+          }
+          lhs_end = lhs_pos + config.kmer_length;
+
+          std::uint32_t rhs_pos = matches[j + indices[m]].rhs_position();
+          rhs_pos = strand ? rhs_pos
+                           : (1U << 31) - (rhs_pos + config.kmer_length - 1);
+          if (rhs_pos > rhs_end) {
+            rhs_matches += rhs_end - rhs_begin;
+            rhs_begin = rhs_pos;
+          }
+          rhs_end = rhs_pos + config.kmer_length;
+        }
+        lhs_matches += lhs_end - lhs_begin;
+        rhs_matches += rhs_end - rhs_begin;
+        if (std::min(lhs_matches, rhs_matches) < config.min_matches) {
+          l = k;
+          continue;
+        }
+
+        dst.emplace_back(
+            lhs_id, matches[j + indices[l]].lhs_position(),
+            config.kmer_length + matches[j + indices[k - 1]].lhs_position(),
+            matches[j].rhs_id(),
+            strand ? matches[j + indices[l]].rhs_position()
+                   : matches[j + indices[k - 1]].rhs_position(),
+            config.kmer_length +
+                (strand ? matches[j + indices[k - 1]].rhs_position()
+                        : matches[j + indices[l]].rhs_position()),
+            std::min(lhs_matches, rhs_matches), strand);
+
+        l = k;
+      }
+    }
+  }
+  return dst;
+}
+
 }  // namespace ram

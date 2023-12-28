@@ -78,9 +78,6 @@ class MinimizerEngine {
     std::unordered_map<std::uint64_t, std::uint64_t, Hash, KeyEqual> locator;
   };
 
-  std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
-                                      std::vector<Match>&& matches) const;
-
   std::uint32_t k_;
   std::uint32_t w_;
   std::uint32_t bandwidth_;

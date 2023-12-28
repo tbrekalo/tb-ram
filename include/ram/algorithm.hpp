@@ -7,6 +7,7 @@
 #include <span>
 #include <vector>
 
+#include "biosoup/overlap.hpp"
 #include "ram/types.hpp"
 
 namespace biosoup {
@@ -117,6 +118,18 @@ struct MinimizeConfig {
 std::vector<Kmer> Minimize(
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
     MinimizeConfig config);
+
+struct ChainConfig {
+  std::uint32_t kmer_length;
+  std::uint32_t bandwidth;
+  std::uint32_t chain;
+  std::uint32_t min_matches;
+  std::uint64_t gap;
+};
+
+std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
+                                    std::vector<Match>&& matches,
+                                    ChainConfig config);
 
 }  // namespace ram
 

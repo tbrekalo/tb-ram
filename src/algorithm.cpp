@@ -3,6 +3,7 @@
 #include <deque>
 
 #include "biosoup/nucleic_acid.hpp"
+#include "thread_pool/thread_pool.hpp"
 
 namespace ram {
 
@@ -85,7 +86,143 @@ std::vector<Kmer> Minimize(
   return dst;
 }
 
-std::vector<biosoup::Overlap> Map(
+std::vector<Index> ConstructIndices(
+    std::shared_ptr<thread_pool::ThreadPool> thread_pool,
+    std::span<std::unique_ptr<biosoup::NucleicAcid>> sequences,
+    MinimizeConfig minimize_config) {
+  std::vector<Index> indices(
+      1uz << std::min(14uz, 2uz * minimize_config.kmer_length));
+  if (sequences.empty()) {
+    return indices;
+  }
+
+  // NOTE: can be done using intel tbb
+  std::vector<std::vector<Kmer>> minimizers(indices.size());
+  {
+    std::uint64_t mask = indices.size() - 1;
+
+    for (auto idx = 0uz; idx != sequences.size();) {
+      std::size_t batch_size = 0;
+      std::vector<std::future<std::vector<Kmer>>> futures;
+      for (; idx < sequences.size() && batch_size < 50000000uz; ++idx) {
+        batch_size += sequences[idx]->inflated_len;
+        futures.emplace_back(thread_pool->Submit(
+            [sequences, minimize_config](std::size_t idx) -> std::vector<Kmer> {
+              return ::ram::Minimize(sequences[idx], minimize_config);
+            },
+            idx));
+      }
+
+      for (auto& it : futures) {
+        for (const auto& jt : it.get()) {
+          auto& m = minimizers[jt.value & mask];
+          if (m.capacity() == m.size()) {
+            m.reserve(m.capacity() * 1.5);
+          }
+          m.emplace_back(jt);
+        }
+      }
+    }
+  }
+
+  {
+    std::vector<std::future<std::pair<std::size_t, std::size_t>>> futures;
+    for (std::uint32_t i = 0; i < minimizers.size(); ++i) {
+      futures.emplace_back(thread_pool->Submit(
+          [&](std::uint32_t i) -> std::pair<std::size_t, std::size_t> {
+            if (minimizers[i].empty()) {
+              return std::make_pair(0, 0);
+            }
+
+            RadixSort<Kmer>(std::span<Kmer>(minimizers[i]),
+                            minimize_config.kmer_length * 2,
+                            KmerValueProjection);
+
+            minimizers[i].emplace_back(-1, -1);  // stop dummy
+
+            std::size_t num_origins = 0;
+            std::size_t num_keys = 0;
+
+            for (std::uint64_t j = 1, c = 1; j < minimizers[i].size();
+                 ++j, ++c) {
+              if (minimizers[i][j - 1].value != minimizers[i][j].value) {
+                if (c > 1) {
+                  num_origins += c;
+                }
+                ++num_keys;
+                c = 0;
+              }
+            }
+
+            return std::make_pair(num_origins, num_keys);
+          },
+          i));
+    }
+    for (std::uint32_t i = 0; i < minimizers.size(); ++i) {
+      auto num_entries = futures[i].get();
+      if (minimizers[i].empty()) {
+        continue;
+      }
+
+      indices[i].origins.reserve(num_entries.first);
+      indices[i].locator.reserve(num_entries.second);
+
+      for (std::uint64_t j = 1, c = 1; j < minimizers[i].size(); ++j, ++c) {
+        if (minimizers[i][j - 1].value != minimizers[i][j].value) {
+          if (c == 1) {
+            indices[i].locator.emplace(minimizers[i][j - 1].value << 1 | 1,
+                                       minimizers[i][j - 1].origin);
+          } else {
+            indices[i].locator.emplace(minimizers[i][j - 1].value << 1,
+                                       indices[i].origins.size() << 32 | c);
+            for (std::uint64_t k = j - c; k < j; ++k) {
+              indices[i].origins.emplace_back(minimizers[i][k].origin);
+            }
+          }
+          c = 0;
+        }
+      }
+
+      std::vector<Kmer>().swap(minimizers[i]);
+    }
+  }
+
+  return indices;
+}
+
+std::uint32_t CalculateKmerThreshold(std::vector<Index> indices,
+                                     double frequency) {
+  if (!(0 <= frequency && frequency <= 1)) {
+    throw std::invalid_argument(
+        "[ram::MinimizerEngine::Filter] error: invalid frequency");
+  }
+
+  if (frequency == 0) {
+    return -1;
+  }
+
+  std::vector<std::uint32_t> occurrences;
+  for (const auto& it : indices) {
+    for (const auto& jt : it.locator) {
+      if (jt.first & 1) {
+        occurrences.emplace_back(1);
+      } else {
+        occurrences.emplace_back(static_cast<std::uint32_t>(jt.second));
+      }
+    }
+  }
+
+  if (occurrences.empty()) {
+    return -1;
+  }
+
+  std::nth_element(occurrences.begin(),
+                   occurrences.begin() + (1 - frequency) * occurrences.size(),
+                   occurrences.end());
+  return occurrences[(1 - frequency) * occurrences.size()] + 1;
+}
+
+std::vector<biosoup::Overlap> MapPairs(
     const std::unique_ptr<biosoup::NucleicAcid>& lhs,
     const std::unique_ptr<biosoup::NucleicAcid>& rhs,
     MinimizeConfig minimize_config, ChainConfig chain_config) {
@@ -146,7 +283,7 @@ std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
   matches.emplace_back(-1, -1);  // stop dummy
 
   std::vector<std::pair<std::uint64_t, std::uint64_t>> intervals;
-  for (std::uint64_t i = 1, j = 0; i < matches.size(); ++i) {  // NOLINT
+  for (std::uint64_t i = 1, j = 0; i < matches.size(); ++i) {
     if (matches[i].group - matches[j].group > config.bandwidth) {
       if (i - j >= 4) {
         if (!intervals.empty() && intervals.back().second > j) {  // extend
@@ -252,6 +389,97 @@ std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
     }
   }
   return dst;
+}
+
+std::vector<biosoup::Overlap> MapSeqToIndex(
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    const std::vector<Index>& indices, MapToIndexConfig map_config,
+    MinimizeConfig minimize_config, ChainConfig chain_config,
+    std::vector<std::uint32_t>* filtered) {
+  auto sketch = ::ram::Minimize(sequence, minimize_config);
+  if (sketch.empty()) {
+    return std::vector<biosoup::Overlap>{};
+  }
+
+  std::vector<Match> matches;
+  auto add_match = [&](const Kmer& kmer, uint64_t origin) -> void {
+    auto id = [](std::uint64_t origin) -> std::uint32_t {
+      return static_cast<std::uint32_t>(origin >> 32);
+    };
+    auto position = [](std::uint64_t origin) -> std::uint32_t {
+      return static_cast<std::uint32_t>(origin) >> 1;
+    };
+    auto strand = [](std::uint64_t origin) -> bool { return origin & 1; };
+
+    if (map_config.avoid_equal && sequence->id == id(origin)) {
+      return;
+    }
+    if (map_config.avoid_symmetric && sequence->id > id(origin)) {
+      return;
+    }
+
+    std::uint64_t rhs_id = id(origin);
+    std::uint64_t strand_ = kmer.strand() == strand(origin);
+    std::uint64_t lhs_pos = kmer.position();
+    std::uint64_t rhs_pos = position(origin);
+    std::uint64_t diagonal =
+        !strand_ ? rhs_pos + lhs_pos : rhs_pos - lhs_pos + (3ULL << 30);
+
+    matches.emplace_back((((rhs_id << 1) | strand_) << 32) | diagonal,
+                         (lhs_pos << 32) | rhs_pos);
+  };
+
+  struct Hit {
+    const Kmer* kmer;
+    std::uint32_t n;
+    const uint64_t* origins;
+
+    Hit(const Kmer* kmer, std::uint32_t n, const uint64_t* origins)
+        : kmer(kmer), n(n), origins(origins) {}
+
+    bool operator<(const Hit& other) const { return n < other.n; }
+  };
+  std::vector<Hit> filtered_hits;
+
+  std::uint64_t mask = indices.size() - 1;
+  std::uint32_t prev = 0;
+
+  sketch.emplace_back(-1, sequence->inflated_len << 1);  // stop dummy
+
+  for (const auto& kmer : sketch) {
+    std::uint32_t i = kmer.value & mask;
+    const uint64_t* origins = nullptr;
+    auto n = indices[i].Find(kmer.value, &origins);
+    if (n > map_config.occurrence) {
+      filtered_hits.emplace_back(&kmer, n, origins);
+      if (filtered) {
+        filtered->emplace_back(kmer.position());
+      }
+      continue;
+    }
+
+    std::size_t rescuees =
+        std::min(static_cast<std::size_t>(kmer.position() - prev) /
+                     chain_config.bandwidth,
+                 filtered_hits.size());
+    if (rescuees) {
+      std::partial_sort(filtered_hits.begin(), filtered_hits.begin() + rescuees,
+                        filtered_hits.end());
+      for (auto it = filtered_hits.begin(); rescuees; rescuees--, ++it) {
+        for (; it->n; it->n--, ++it->origins) {
+          add_match(*it->kmer, *it->origins);
+        }
+      }
+    }
+    filtered_hits.clear();
+    prev = kmer.position();
+
+    for (; n; n--, ++origins) {
+      add_match(kmer, *origins);
+    }
+  }
+
+  return Chain(sequence->id, std::move(matches), chain_config);
 }
 
 }  // namespace ram

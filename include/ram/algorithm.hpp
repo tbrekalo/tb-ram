@@ -14,6 +14,10 @@ namespace biosoup {
 class NucleicAcid;
 }
 
+namespace thread_pool {
+class ThreadPool;
+}
+
 namespace ram {
 
 // Projects a type T into an integral type which can be used in a radix sort.
@@ -119,6 +123,14 @@ std::vector<Kmer> Minimize(
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
     MinimizeConfig config);
 
+std::vector<Index> ConstructIndices(
+    std::shared_ptr<thread_pool::ThreadPool> thread_pool,
+    std::span<std::unique_ptr<biosoup::NucleicAcid>> sequences,
+    MinimizeConfig minimize_config);
+
+std::uint32_t CalculateKmerThreshold(std::vector<Index> indices,
+                                     double frequency);
+
 struct ChainConfig {
   std::uint32_t kmer_length = 15;
   std::uint32_t bandwidth = 500;
@@ -133,10 +145,22 @@ std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
 
 // Find overlaps between a pair of sequences.
 // Minhash argument from configuration will only be applied on the lhs sequence.
-std::vector<biosoup::Overlap> Map(
+std::vector<biosoup::Overlap> MapPairs(
     const std::unique_ptr<biosoup::NucleicAcid>& lhs,
     const std::unique_ptr<biosoup::NucleicAcid>& rhs,
     MinimizeConfig minimize_config, ChainConfig chain_config);
+
+struct MapToIndexConfig {
+  bool avoid_equal = true;
+  bool avoid_symmetric = true;
+  std::uint32_t occurrence = -1;
+};
+
+std::vector<biosoup::Overlap> MapSeqToIndex(
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    const std::vector<Index>& indices, MapToIndexConfig map_config,
+    MinimizeConfig minimize_config, ChainConfig chain_config,
+    std::vector<std::uint32_t>* filtered);
 
 }  // namespace ram
 

@@ -24,20 +24,6 @@ MinimizerEngine::MinimizerEngine(
                                : std::make_shared<thread_pool::ThreadPool>(1)) {
 }
 
-std::uint32_t MinimizerEngine::Index::Find(std::uint64_t key,
-                                           const std::uint64_t** dst) const {
-  auto it = locator.find(key << 1);
-  if (it == locator.end()) {
-    return 0;
-  }
-  if (it->first & 1) {
-    *dst = &(it->second);
-    return 1;
-  }
-  *dst = &(origins[it->second >> 32]);
-  return static_cast<std::uint32_t>(it->second);
-}
-
 void MinimizerEngine::Minimize(
     std::vector<std::unique_ptr<biosoup::NucleicAcid>>::const_iterator first,
     std::vector<std::unique_ptr<biosoup::NucleicAcid>>::const_iterator last,

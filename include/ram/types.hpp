@@ -2,6 +2,8 @@
 #define RAM_TYPES_HPP_
 
 #include <cstdint>
+#include <unordered_map>
+#include <vector>
 
 namespace ram {
 
@@ -50,6 +52,23 @@ struct Match {
 
 [[using gnu: always_inline, const, hot]] std::uint64_t MatchPositionProjection(
     const Match& match) noexcept;
+
+class Index {
+ public:
+  Index();
+
+  std::uint32_t Find(std::uint64_t key, const std::uint64_t** dst) const;
+
+  struct Hash {
+    std::size_t operator()(std::uint64_t key) const noexcept;
+  };
+  struct KeyEqual {
+    bool operator()(std::uint64_t lhs, std::uint64_t rhs) const noexcept;
+  };
+
+  std::vector<std::uint64_t> origins;
+  std::unordered_map<std::uint64_t, std::uint64_t, Hash, KeyEqual> locator;
+};
 
 }  // namespace ram
 

@@ -5,7 +5,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <unordered_map>
 #include <vector>
 
 #include "biosoup/nucleic_acid.hpp"
@@ -57,27 +56,6 @@ class MinimizerEngine {
       bool minhash = false) const;  // only lhs
 
  private:
-  class Index {
-   public:
-    Index() = default;
-
-    std::uint32_t Find(std::uint64_t key, const std::uint64_t** dst) const;
-
-    struct Hash {
-      std::size_t operator()(std::uint64_t key) const {
-        return std::hash<std::uint64_t>()(key >> 1);
-      }
-    };
-    struct KeyEqual {
-      bool operator()(std::uint64_t lhs, std::uint64_t rhs) const {
-        return (lhs >> 1) == (rhs >> 1);
-      }
-    };
-
-    std::vector<std::uint64_t> origins;
-    std::unordered_map<std::uint64_t, std::uint64_t, Hash, KeyEqual> locator;
-  };
-
   std::uint32_t k_;
   std::uint32_t w_;
   std::uint32_t bandwidth_;

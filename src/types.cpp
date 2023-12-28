@@ -56,4 +56,28 @@ std::uint64_t MatchPositionProjection(const Match& match) noexcept {
   return match.positions;
 }
 
+Index::Index() {}
+
+std::size_t Index::Hash::operator()(std::uint64_t key) const noexcept {
+  return std::hash<std::uint64_t>()(key >> 1);
+}
+
+bool Index::KeyEqual::operator()(std::uint64_t lhs,
+                                 std::uint64_t rhs) const noexcept {
+  return (lhs >> 1) == (rhs >> 1);
+}
+
+std::uint32_t Index::Find(std::uint64_t key, const std::uint64_t** dst) const {
+  auto it = locator.find(key << 1);
+  if (it == locator.end()) {
+    return 0;
+  }
+  if (it->first & 1) {
+    *dst = &(it->second);
+    return 1;
+  }
+  *dst = &(origins[it->second >> 32]);
+  return static_cast<std::uint32_t>(it->second);
+}
+
 }  // namespace ram

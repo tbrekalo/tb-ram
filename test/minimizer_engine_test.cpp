@@ -1,10 +1,10 @@
 // Copyright (c) 2020 Robert Vaser
 
-#include "ram/minimizer_engine.hpp"
-
 #include "bioparser/fasta_parser.hpp"
+#include "biosoup/nucleic_acid.hpp"
 #include "gtest/gtest.h"
 #include "ram/algorithm.hpp"
+#include "thread_pool/thread_pool.hpp"
 
 std::atomic<std::uint32_t> biosoup::NucleicAcid::num_objects{0};
 
@@ -14,23 +14,27 @@ namespace test {
 class RamMinimizerEngineTest : public ::testing::Test {
  public:
   void SetUp() override {
+    thread_pool = std::make_shared<thread_pool::ThreadPool>(1);
     biosoup::NucleicAcid::num_objects = 0;
     auto p =
         bioparser::Parser<biosoup::NucleicAcid>::Create<bioparser::FastaParser>(
-            TEST_DATA);  // NOLINT
+            TEST_DATA);
     s = p->Parse(-1);
     EXPECT_EQ(2, s.size());
   }
 
+  std::shared_ptr<thread_pool::ThreadPool> thread_pool;
   std::vector<std::unique_ptr<biosoup::NucleicAcid>> s;
 };
 
 TEST_F(RamMinimizerEngineTest, Map) {
-  MinimizerEngine me{};
-  me.Minimize(s.begin(), s.end());
-  me.Filter(0.001);
+  auto indices = ConstructIndices(thread_pool, s, MinimizeConfig{});
+  auto occurrence = CalculateKmerThreshold(indices, 0.001);
+  std::vector<std::uint32_t> filtered;
 
-  auto o = me.Map(s.front(), true, true);
+  auto o = MapSeqToIndex(s.front(), indices,
+                         MapToIndexConfig{.occurrence = occurrence},
+                         MinimizeConfig{}, ChainConfig{}, &filtered);
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(0, o.front().lhs_id);
   EXPECT_EQ(30, o.front().lhs_begin);
@@ -41,10 +45,16 @@ TEST_F(RamMinimizerEngineTest, Map) {
   EXPECT_EQ(585, o.front().score);
   EXPECT_TRUE(o.front().strand);
 
-  o = me.Map(s.back(), true, true);
+  o = MapSeqToIndex(s.back(), indices,
+                    MapToIndexConfig{.occurrence = occurrence},
+                    MinimizeConfig{}, ChainConfig{}, &filtered);
   EXPECT_TRUE(o.empty());
 
-  o = me.Map(s.back(), true, false);
+  o = MapSeqToIndex(
+      s.back(), indices,
+      MapToIndexConfig{.avoid_symmetric = false, .occurrence = occurrence},
+      MinimizeConfig{}, ChainConfig{}, &filtered);
+
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(1, o.front().lhs_id);
   EXPECT_EQ(0, o.front().lhs_begin);
@@ -55,7 +65,11 @@ TEST_F(RamMinimizerEngineTest, Map) {
   EXPECT_EQ(585, o.front().score);
   EXPECT_TRUE(o.front().strand);
 
-  o = me.Map(s.front(), false, true);
+  o = MapSeqToIndex(s.front(), indices,
+                    MapToIndexConfig{.avoid_equal = false,
+                                     .avoid_symmetric = true,
+                                     .occurrence = occurrence},
+                    MinimizeConfig{}, ChainConfig{}, &filtered);
   EXPECT_EQ(2, o.size());
   EXPECT_EQ(0, o.front().lhs_id);
   EXPECT_EQ(2, o.front().lhs_begin);
@@ -68,7 +82,7 @@ TEST_F(RamMinimizerEngineTest, Map) {
 }
 
 TEST_F(RamMinimizerEngineTest, Pair) {
-  auto o = Map(s.front(), s.back(), MinimizeConfig{}, ChainConfig{});
+  auto o = MapPairs(s.front(), s.back(), MinimizeConfig{}, ChainConfig{});
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(0, o.front().lhs_id);
   EXPECT_EQ(30, o.front().lhs_begin);
@@ -79,7 +93,7 @@ TEST_F(RamMinimizerEngineTest, Pair) {
   EXPECT_EQ(585, o.front().score);
   EXPECT_TRUE(o.front().strand);
 
-  o = Map(s.back(), s.front(), MinimizeConfig{}, ChainConfig{});
+  o = MapPairs(s.back(), s.front(), MinimizeConfig{}, ChainConfig{});
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(1, o.front().lhs_id);
   EXPECT_EQ(0, o.front().lhs_begin);
@@ -92,11 +106,15 @@ TEST_F(RamMinimizerEngineTest, Pair) {
 }
 
 TEST_F(RamMinimizerEngineTest, Filter) {
-  MinimizerEngine me{nullptr, 9, 3};
-  me.Minimize(s.begin(), s.end());
+  auto minimize_config = MinimizeConfig{.kmer_length = 9, .window_length = 3};
+  auto indices = ConstructIndices(thread_pool, s, minimize_config);
+  auto occurrence_0_001 = CalculateKmerThreshold(indices, 0.001);
+  std::vector<std::uint32_t> filtered;
 
-  me.Filter(0.001);
-  auto o = me.Map(s.front(), true, true);
+  auto o = MapSeqToIndex(
+      s.front(), indices, MapToIndexConfig{.occurrence = occurrence_0_001},
+      minimize_config, ChainConfig{.kmer_length = 9}, &filtered);
+
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(0, o.front().lhs_id);
   EXPECT_EQ(31, o.front().lhs_begin);
@@ -107,8 +125,11 @@ TEST_F(RamMinimizerEngineTest, Filter) {
   EXPECT_EQ(994, o.front().score);
   EXPECT_TRUE(o.front().strand);
 
-  me.Filter(0.1);
-  o = me.Map(s.front(), true, true);
+  auto occurrence_0_1 = CalculateKmerThreshold(indices, 0.1);
+
+  o = MapSeqToIndex(s.front(), indices,
+                    MapToIndexConfig{.occurrence = occurrence_0_1},
+                    minimize_config, ChainConfig{.kmer_length = 9}, &filtered);
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(0, o.front().lhs_id);
   EXPECT_EQ(31, o.front().lhs_begin);
@@ -121,9 +142,13 @@ TEST_F(RamMinimizerEngineTest, Filter) {
 }
 
 TEST_F(RamMinimizerEngineTest, Micromize) {
-  MinimizerEngine me{};
-  me.Minimize(s.begin(), s.end());
-  auto o = me.Map(s.front(), true, true, true);
+  auto indices = ConstructIndices(thread_pool, s, MinimizeConfig{});
+  std::vector<std::uint32_t> filtered;
+
+  auto o =
+      MapSeqToIndex(s.front(), indices, MapToIndexConfig{},
+                    MinimizeConfig{.minhash = true}, ChainConfig{}, &filtered);
+
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(0, o.front().lhs_id);
   EXPECT_EQ(80, o.front().lhs_begin);
@@ -134,7 +159,8 @@ TEST_F(RamMinimizerEngineTest, Micromize) {
   EXPECT_EQ(242, o.front().score);
   EXPECT_TRUE(o.front().strand);
 
-  o = Map(s.front(), s.back(), MinimizeConfig{.minhash = true}, ChainConfig{});
+  o = MapPairs(s.front(), s.back(), MinimizeConfig{.minhash = true},
+               ChainConfig{});
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(0, o.front().lhs_id);
   EXPECT_EQ(80, o.front().lhs_begin);

@@ -357,13 +357,18 @@ std::vector<biosoup::Overlap> MinimizerEngine::Chain(
     std::uint64_t strand = matches[j].strand();
 
     std::vector<std::uint64_t> indices;
-    if (strand) {                    // same strand
-      indices = LongestSubsequence(  // increasing
-          matches.begin() + j, matches.begin() + i, std::less<std::uint64_t>());
-    } else {                         // different strand
-      indices = LongestSubsequence(  // decreasing
-          matches.begin() + j, matches.begin() + i,
-          std::greater<std::uint64_t>());
+    if (strand) {                         // same strand
+      indices = LongestMatchSubsequence(  // increasing
+          std::span(matches.cbegin() + j, matches.cbegin() + i),
+          [](std::uint32_t lhs, std::uint32_t rhs) noexcept -> bool {
+            return lhs < rhs;
+          });
+    } else {                              // different strand
+      indices = LongestMatchSubsequence(  // decreasing
+          std::span(matches.cbegin() + j, matches.cbegin() + i),
+          [](std::uint32_t lhs, std::uint32_t rhs) noexcept -> bool {
+            return lhs > rhs;
+          });
     }
 
     if (indices.size() < chain_) {
@@ -424,46 +429,6 @@ std::vector<biosoup::Overlap> MinimizerEngine::Chain(
       }
     }
   }
-  return dst;
-}
-
-template <typename Compare>
-std::vector<std::uint64_t> MinimizerEngine::LongestSubsequence(
-    std::vector<Match>::const_iterator first,
-    std::vector<Match>::const_iterator last,
-    Compare comp) {  // binary comparison function
-  if (first >= last) {
-    return std::vector<std::uint64_t>{};
-  }
-
-  std::vector<std::uint64_t> minimal(last - first + 1, 0);
-  std::vector<std::uint64_t> predecessor(last - first, 0);
-
-  std::uint64_t longest = 0;
-  for (auto it = first; it != last; ++it) {
-    std::uint64_t lo = 1, hi = longest;
-    while (lo <= hi) {
-      std::uint64_t mid = lo + (hi - lo) / 2;
-      if ((first + minimal[mid])->lhs_position() < it->lhs_position() &&
-          comp((first + minimal[mid])->rhs_position(), it->rhs_position())) {
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-
-    predecessor[it - first] = minimal[lo - 1];
-    minimal[lo] = it - first;
-    longest = std::max(longest, lo);
-  }
-
-  std::vector<std::uint64_t> dst;
-  for (std::uint64_t i = 0, j = minimal[longest]; i < longest; ++i) {
-    dst.emplace_back(j);
-    j = predecessor[j];
-  }
-  std::reverse(dst.begin(), dst.end());
-
   return dst;
 }
 

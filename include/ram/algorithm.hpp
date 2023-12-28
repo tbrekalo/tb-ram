@@ -61,6 +61,53 @@ inline void RadixSort(std::span<T> values, std::uint8_t max_bits, Proj proj) {
   }
 }
 
+// Requirements for the comparison operator passed to the
+// LongestMatchSubsequence function.
+template <class T>
+concept BinaryMatchComparator = requires(const T& t, std::uint32_t arg) {
+  { t(arg, arg) } noexcept -> std::same_as<bool>;
+};
+
+// Expects the input matches to be sorted by the lhs position.
+template <BinaryMatchComparator C>
+inline std::vector<std::uint64_t> LongestMatchSubsequence(
+    std::span<const Match> matches, C comp) {
+  if (matches.empty()) {
+    return std::vector<std::uint64_t>{};
+  }
+
+  std::vector<std::uint64_t> minimal(matches.size() + 1, 0);
+  std::vector<std::uint64_t> predecessor(matches.size(), 0);
+
+  std::uint64_t longest = 0;
+  for (auto idx = 0uz; idx < matches.size(); ++idx) {
+    std::uint64_t lo = 1, hi = longest;
+    while (lo <= hi) {
+      std::uint64_t mid = lo + (hi - lo) / 2;
+      if (matches[minimal[mid]].lhs_position() < matches[idx].lhs_position() &&
+          comp(matches[minimal[mid]].rhs_position(),
+               matches[idx].rhs_position())) {
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+
+    predecessor[idx] = minimal[lo - 1];
+    minimal[lo] = idx;
+    longest = std::max(longest, lo);
+  }
+
+  std::vector<std::uint64_t> dst;
+  for (std::uint64_t i = 0, j = minimal[longest]; i < longest; ++i) {
+    dst.emplace_back(j);
+    j = predecessor[j];
+  }
+  std::reverse(dst.begin(), dst.end());
+
+  return dst;
+}
+
 struct MinimizeConfig {
   std::uint32_t kmer_length;
   std::uint32_t window_length;

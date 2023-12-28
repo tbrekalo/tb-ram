@@ -81,12 +81,6 @@ class MinimizerEngine {
   std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
                                       std::vector<Match>&& matches) const;
 
-  template <typename Compare>
-  static std::vector<std::uint64_t> LongestSubsequence(
-      std::vector<Match>::const_iterator first,
-      std::vector<Match>::const_iterator last,
-      Compare comp);  // binary comparison function
-
   std::uint32_t k_;
   std::uint32_t w_;
   std::uint32_t bandwidth_;

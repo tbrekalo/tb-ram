@@ -14,10 +14,6 @@ namespace biosoup {
 class NucleicAcid;
 }
 
-namespace thread_pool {
-class ThreadPool;
-}
-
 namespace ram {
 
 // Projects a type T into an integral type which can be used in a radix sort.
@@ -124,7 +120,6 @@ std::vector<Kmer> Minimize(
     MinimizeConfig config);
 
 std::vector<Index> ConstructIndices(
-    std::shared_ptr<thread_pool::ThreadPool> thread_pool,
     std::span<std::unique_ptr<biosoup::NucleicAcid>> sequences,
     MinimizeConfig minimize_config);
 

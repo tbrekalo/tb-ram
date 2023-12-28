@@ -2,14 +2,12 @@
 
 #include <getopt.h>
 
-#include <bitset>
 #include <cstdlib>
 #include <iostream>
 
 #include "bioparser/fasta_parser.hpp"
 #include "bioparser/fastq_parser.hpp"
 #include "biosoup/progress_bar.hpp"
-#include "thread_pool/thread_pool.hpp"
 #include "biosoup/nucleic_acid.hpp"
 #include "biosoup/timer.hpp"
 
@@ -197,8 +195,6 @@ int main(int argc, char** argv) {
     sparser = CreateParser(input_paths[0]);
     is_ava = true;
   }
-
-  auto thread_pool = std::make_shared<thread_pool::ThreadPool>(num_threads);
 
   biosoup::Timer timer{};
 

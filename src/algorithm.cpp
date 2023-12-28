@@ -3,7 +3,7 @@
 #include <deque>
 
 #include "biosoup/nucleic_acid.hpp"
-#include "thread_pool/thread_pool.hpp"
+#include "tbb/tbb.h"
 
 namespace ram {
 
@@ -87,7 +87,6 @@ std::vector<Kmer> Minimize(
 }
 
 std::vector<Index> ConstructIndices(
-    std::shared_ptr<thread_pool::ThreadPool> thread_pool,
     std::span<std::unique_ptr<biosoup::NucleicAcid>> sequences,
     MinimizeConfig minimize_config) {
   std::vector<Index> indices(
@@ -96,76 +95,83 @@ std::vector<Index> ConstructIndices(
     return indices;
   }
 
-  // NOTE: can be done using intel tbb
   std::vector<std::vector<Kmer>> minimizers(indices.size());
   {
     std::uint64_t mask = indices.size() - 1;
-
+    std::vector<std::vector<Kmer>> buffer;
     for (auto idx = 0uz; idx != sequences.size();) {
-      std::size_t batch_size = 0;
-      std::vector<std::future<std::vector<Kmer>>> futures;
-      for (; idx < sequences.size() && batch_size < 50000000uz; ++idx) {
-        batch_size += sequences[idx]->inflated_len;
-        futures.emplace_back(thread_pool->Submit(
-            [sequences, minimize_config](std::size_t idx) -> std::vector<Kmer> {
-              return ::ram::Minimize(sequences[idx], minimize_config);
-            },
-            idx));
-      }
+      const auto batch_first_idx = idx;
+      idx = [sequences](std::size_t start_idx) {
+        auto curr_idx = start_idx;
+        for (auto batch_size = 0uz;
+             curr_idx < sequences.size() && batch_size < 5'0000'000uz;
+             ++curr_idx) {
+          batch_size += sequences[curr_idx]->inflated_len;
+        }
+        return curr_idx;
+      }(idx);
 
-      for (auto& it : futures) {
-        for (const auto& jt : it.get()) {
-          auto& m = minimizers[jt.value & mask];
+      buffer.resize(idx - batch_first_idx);
+      tbb::parallel_for(batch_first_idx, idx,
+                        [&sequences, &minimize_config, &buffer,
+                         batch_first_idx](std::size_t minimize_idx) -> void {
+                          buffer[minimize_idx - batch_first_idx] = Minimize(
+                              sequences[minimize_idx], minimize_config);
+                        });
+
+      for (auto& kmers : buffer) {
+        for (auto kmer : kmers) {
+          auto& m = minimizers[kmer.value & mask];
           if (m.capacity() == m.size()) {
             m.reserve(m.capacity() * 1.5);
           }
-          m.emplace_back(jt);
+          m.push_back(kmer);
         }
+
+        std::vector<Kmer>{}.swap(kmers);
       }
     }
   }
 
   {
-    std::vector<std::future<std::pair<std::size_t, std::size_t>>> futures;
-    for (std::uint32_t i = 0; i < minimizers.size(); ++i) {
-      futures.emplace_back(thread_pool->Submit(
-          [&](std::uint32_t i) -> std::pair<std::size_t, std::size_t> {
-            if (minimizers[i].empty()) {
-              return std::make_pair(0, 0);
-            }
+    std::vector<std::pair<std::size_t, std::size_t>> origins_keys(
+        minimizers.size());
+    tbb::parallel_for(
+        0uz, minimizers.size(),
+        [&](std::uint32_t i) -> std::pair<std::size_t, std::size_t> {
+          if (minimizers[i].empty()) {
+            return std::make_pair(0, 0);
+          }
 
-            RadixSort<Kmer>(std::span<Kmer>(minimizers[i]),
-                            minimize_config.kmer_length * 2,
-                            KmerValueProjection);
+          RadixSort<Kmer>(std::span<Kmer>(minimizers[i]),
+                          minimize_config.kmer_length * 2, KmerValueProjection);
 
-            minimizers[i].emplace_back(-1, -1);  // stop dummy
+          minimizers[i].emplace_back(-1, -1);  // stop dummy
 
-            std::size_t num_origins = 0;
-            std::size_t num_keys = 0;
+          std::size_t num_origins = 0;
+          std::size_t num_keys = 0;
 
-            for (std::uint64_t j = 1, c = 1; j < minimizers[i].size();
-                 ++j, ++c) {
-              if (minimizers[i][j - 1].value != minimizers[i][j].value) {
-                if (c > 1) {
-                  num_origins += c;
-                }
-                ++num_keys;
-                c = 0;
+          for (std::uint64_t j = 1, c = 1; j < minimizers[i].size(); ++j, ++c) {
+            if (minimizers[i][j - 1].value != minimizers[i][j].value) {
+              if (c > 1) {
+                num_origins += c;
               }
+              ++num_keys;
+              c = 0;
             }
+          }
 
-            return std::make_pair(num_origins, num_keys);
-          },
-          i));
-    }
+          return std::make_pair(num_origins, num_keys);
+        });
+
     for (std::uint32_t i = 0; i < minimizers.size(); ++i) {
-      auto num_entries = futures[i].get();
       if (minimizers[i].empty()) {
         continue;
       }
 
-      indices[i].origins.reserve(num_entries.first);
-      indices[i].locator.reserve(num_entries.second);
+      auto [num_origins, num_keys] = origins_keys[i];
+      indices[i].origins.reserve(num_origins);
+      indices[i].locator.reserve(num_keys);
 
       for (std::uint64_t j = 1, c = 1; j < minimizers[i].size(); ++j, ++c) {
         if (minimizers[i][j - 1].value != minimizers[i][j].value) {
@@ -226,12 +232,12 @@ std::vector<biosoup::Overlap> MapPairs(
     const std::unique_ptr<biosoup::NucleicAcid>& lhs,
     const std::unique_ptr<biosoup::NucleicAcid>& rhs,
     MinimizeConfig minimize_config, ChainConfig chain_config) {
-  auto lhs_sketch = ::ram::Minimize(lhs, minimize_config);
+  auto lhs_sketch = Minimize(lhs, minimize_config);
   if (lhs_sketch.empty()) {
     return std::vector<biosoup::Overlap>{};
   }
 
-  auto rhs_sketch = ::ram::Minimize(
+  auto rhs_sketch = Minimize(
       rhs, MinimizeConfig{.kmer_length = minimize_config.kmer_length,
                           .window_length = minimize_config.window_length});
   if (rhs_sketch.empty()) {
@@ -396,7 +402,7 @@ std::vector<biosoup::Overlap> MapSeqToIndex(
     const std::vector<Index>& indices, MapToIndexConfig map_config,
     MinimizeConfig minimize_config, ChainConfig chain_config,
     std::vector<std::uint32_t>* filtered) {
-  auto sketch = ::ram::Minimize(sequence, minimize_config);
+  auto sketch = Minimize(sequence, minimize_config);
   if (sketch.empty()) {
     return std::vector<biosoup::Overlap>{};
   }

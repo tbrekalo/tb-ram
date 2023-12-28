@@ -110,8 +110,8 @@ inline std::vector<std::uint64_t> LongestMatchSubsequence(
 }
 
 struct MinimizeConfig {
-  std::uint32_t kmer_length;
-  std::uint32_t window_length;
+  std::uint32_t kmer_length = 15;
+  std::uint32_t window_length = 5;
   bool minhash = false;
 };
 
@@ -120,11 +120,11 @@ std::vector<Kmer> Minimize(
     MinimizeConfig config);
 
 struct ChainConfig {
-  std::uint32_t kmer_length;
-  std::uint32_t bandwidth;
-  std::uint32_t chain;
-  std::uint32_t min_matches;
-  std::uint64_t gap;
+  std::uint32_t kmer_length = 15;
+  std::uint32_t bandwidth = 500;
+  std::uint32_t chain = 4;
+  std::uint32_t min_matches = 100;
+  std::uint64_t gap = 10'000;
 };
 
 std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,

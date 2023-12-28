@@ -11,6 +11,7 @@
 
 #include "biosoup/nucleic_acid.hpp"
 #include "biosoup/overlap.hpp"
+#include "ram/types.hpp"
 #include "thread_pool/thread_pool.hpp"
 
 namespace ram {
@@ -57,61 +58,6 @@ class MinimizerEngine {
       bool minhash = false) const;  // only lhs
 
  private:
-  struct Kmer {
-   public:
-    Kmer() = default;
-    Kmer(std::uint64_t value, std::uint64_t origin)
-        : value(value), origin(origin) {}
-
-    std::uint32_t id() const {
-      return static_cast<std::uint32_t>(origin >> 32);
-    }
-
-    std::uint32_t position() const {
-      return static_cast<std::uint32_t>(origin) >> 1;
-    }
-
-    bool strand() const { return origin & 1; }
-
-    static std::uint64_t SortByValue(const Kmer& kmer) { return kmer.value; }
-
-    static std::uint64_t SortByOrigin(const Kmer& kmer) { return kmer.origin; }
-
-    std::uint64_t value;
-    std::uint64_t origin;
-  };
-
-  struct Match {
-   public:
-    Match() = default;
-    Match(std::uint64_t group, std::uint64_t positions)
-        : group(group), positions(positions) {}
-
-    std::uint32_t rhs_id() const {
-      return static_cast<std::uint32_t>(group >> 33);
-    }
-
-    bool strand() const { return (group >> 32) & 1; }
-
-    std::uint32_t diagonal() const { return static_cast<std::uint32_t>(group); }
-
-    std::uint32_t lhs_position() const {
-      return static_cast<std::uint32_t>(positions >> 32);
-    }
-
-    std::uint32_t rhs_position() const {
-      return static_cast<std::uint32_t>(positions);
-    }
-
-    static std::uint64_t SortByGroup(const Match& match) { return match.group; }
-    static std::uint64_t SortByPositions(const Match& match) {
-      return match.positions;
-    }
-
-    std::uint64_t group;
-    std::uint64_t positions;
-  };
-
   class Index {
    public:
     Index() = default;

@@ -3,10 +3,10 @@
 
 #include <algorithm>
 #include <concepts>
-#include <cstdint>
 #include <span>
 #include <vector>
 
+#include "ram/types.hpp"
 namespace ram {
 
 // Projects a type T into an integral type which can be used in a radix sort.

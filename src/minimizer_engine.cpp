@@ -2,7 +2,6 @@
 
 #include "ram/minimizer_engine.hpp"
 
-#include <deque>
 #include <stdexcept>
 
 #include "ram/algorithm.hpp"
@@ -63,7 +62,11 @@ void MinimizerEngine::Minimize(
         batch_size += (*first)->inflated_len;
         futures.emplace_back(thread_pool_->Submit(
             [&](decltype(first) it) -> std::vector<Kmer> {
-              return Minimize(*it, minhash);
+              return ::ram::Minimize(*it, MinimizeConfig{
+                                              .kmer_length = k_,
+                                              .window_length = w_,
+                                              .minhash = minhash,
+                                          });
             },
             first));
       }
@@ -89,7 +92,7 @@ void MinimizerEngine::Minimize(
             }
 
             RadixSort<Kmer>(std::span<Kmer>(minimizers[i]), k_ * 2,
-                            Kmer::SortByValue);
+                            KmerValueProjection);
 
             minimizers[i].emplace_back(-1, -1);  // stop dummy
 
@@ -178,7 +181,9 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
     const std::unique_ptr<biosoup::NucleicAcid>& sequence, bool avoid_equal,
     bool avoid_symmetric, bool minhash,
     std::vector<std::uint32_t>* filtered) const {
-  auto sketch = Minimize(sequence, minhash);
+  auto sketch = ::ram::Minimize(sequence, MinimizeConfig{.kmer_length = k_,
+                                                         .window_length = w_,
+                                                         .minhash = minhash});
   if (sketch.empty()) {
     return std::vector<biosoup::Overlap>{};
   }
@@ -266,18 +271,21 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
 std::vector<biosoup::Overlap> MinimizerEngine::Map(
     const std::unique_ptr<biosoup::NucleicAcid>& lhs,
     const std::unique_ptr<biosoup::NucleicAcid>& rhs, bool minhash) const {
-  auto lhs_sketch = Minimize(lhs, minhash);
+  auto lhs_sketch = ::ram::Minimize(
+      lhs, MinimizeConfig{
+               .kmer_length = k_, .window_length = w_, .minhash = minhash});
   if (lhs_sketch.empty()) {
     return std::vector<biosoup::Overlap>{};
   }
 
-  auto rhs_sketch = Minimize(rhs);
+  auto rhs_sketch = ::ram::Minimize(
+      rhs, MinimizeConfig{.kmer_length = k_, .window_length = w_});
   if (rhs_sketch.empty()) {
     return std::vector<biosoup::Overlap>{};
   }
 
-  RadixSort(std::span<Kmer>(lhs_sketch), k_ * 2, Kmer::SortByValue);
-  RadixSort(std::span<Kmer>(rhs_sketch), k_ * 2, Kmer::SortByValue);
+  RadixSort(std::span<Kmer>(lhs_sketch), k_ * 2, KmerValueProjection);
+  RadixSort(std::span<Kmer>(rhs_sketch), k_ * 2, KmerValueProjection);
 
   std::uint64_t rhs_id = rhs->id;
 
@@ -314,7 +322,7 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
 
 std::vector<biosoup::Overlap> MinimizerEngine::Chain(
     std::uint64_t lhs_id, std::vector<Match>&& matches) const {
-  RadixSort(std::span<Match>(matches), 64, Match::SortByGroup);
+  RadixSort(std::span<Match>(matches), 64, MatchGroupProjection);
   matches.emplace_back(-1, -1);  // stop dummy
 
   std::vector<std::pair<std::uint64_t, std::uint64_t>> intervals;
@@ -344,7 +352,7 @@ std::vector<biosoup::Overlap> MinimizerEngine::Chain(
     }
 
     RadixSort(std::span(matches.begin() + j, matches.begin() + i), 64,
-              Match::SortByPositions);
+              MatchPositionProjection);
 
     std::uint64_t strand = matches[j].strand();
 
@@ -416,81 +424,6 @@ std::vector<biosoup::Overlap> MinimizerEngine::Chain(
       }
     }
   }
-  return dst;
-}
-
-std::vector<MinimizerEngine::Kmer> MinimizerEngine::Minimize(
-    const std::unique_ptr<biosoup::NucleicAcid>& sequence, bool minhash) const {
-  if (sequence->inflated_len < k_) {
-    return std::vector<Kmer>{};
-  }
-
-  std::uint64_t mask = (1ULL << (k_ * 2)) - 1;
-
-  auto hash = [&](std::uint64_t key) -> std::uint64_t {
-    key = ((~key) + (key << 21)) & mask;
-    key = key ^ (key >> 24);
-    key = ((key + (key << 3)) + (key << 8)) & mask;
-    key = key ^ (key >> 14);
-    key = ((key + (key << 2)) + (key << 4)) & mask;
-    key = key ^ (key >> 28);
-    key = (key + (key << 31)) & mask;
-    return key;
-  };
-
-  std::deque<Kmer> window;
-  auto window_add = [&](std::uint64_t value, std::uint64_t location) -> void {
-    while (!window.empty() && window.back().value > value) {
-      window.pop_back();
-    }
-    window.emplace_back(value, location);
-  };
-  auto window_update = [&](std::uint32_t position) -> void {
-    while (!window.empty() && (window.front().position()) < position) {
-      window.pop_front();
-    }
-  };
-
-  std::uint64_t shift = (k_ - 1) * 2;
-  std::uint64_t minimizer = 0;
-  std::uint64_t reverse_minimizer = 0;
-  std::uint64_t id = static_cast<std::uint64_t>(sequence->id) << 32;
-  std::uint64_t is_stored = 1ULL << 63;
-
-  std::vector<Kmer> dst;
-
-  for (std::uint32_t i = 0; i < sequence->inflated_len; ++i) {
-    std::uint64_t c = sequence->Code(i);
-    minimizer = ((minimizer << 2) | c) & mask;
-    reverse_minimizer = (reverse_minimizer >> 2) | ((c ^ 3) << shift);
-    if (i >= k_ - 1U) {
-      if (minimizer < reverse_minimizer) {
-        window_add(hash(minimizer), (i - (k_ - 1U)) << 1 | 0);
-      } else if (minimizer > reverse_minimizer) {
-        window_add(hash(reverse_minimizer), (i - (k_ - 1U)) << 1 | 1);
-      }
-    }
-    if (i >= (k_ - 1U) + (w_ - 1U)) {
-      for (auto it = window.begin(); it != window.end(); ++it) {
-        if (it->value != window.front().value) {
-          break;
-        }
-        if (it->origin & is_stored) {
-          continue;
-        }
-        dst.emplace_back(it->value, id | it->origin);
-        it->origin |= is_stored;
-      }
-      window_update(i - (k_ - 1U) - (w_ - 1U) + 1);
-    }
-  }
-
-  if (minhash) {
-    RadixSort(std::span<Kmer>(dst), k_ * 2, Kmer::SortByValue);
-    dst.resize(sequence->inflated_len / k_);
-    RadixSort(std::span<Kmer>(dst), 64, Kmer::SortByOrigin);
-  }
-
   return dst;
 }
 

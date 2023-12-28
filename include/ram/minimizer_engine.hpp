@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "biosoup/nucleic_acid.hpp"
@@ -78,10 +77,6 @@ class MinimizerEngine {
     std::vector<std::uint64_t> origins;
     std::unordered_map<std::uint64_t, std::uint64_t, Hash, KeyEqual> locator;
   };
-
-  std::vector<Kmer> Minimize(
-      const std::unique_ptr<biosoup::NucleicAcid>& sequence,
-      bool minhash = false) const;
 
   std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
                                       std::vector<Match>&& matches) const;

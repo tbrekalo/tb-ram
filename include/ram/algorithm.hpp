@@ -3,10 +3,16 @@
 
 #include <algorithm>
 #include <concepts>
+#include <memory>
 #include <span>
 #include <vector>
 
 #include "ram/types.hpp"
+
+namespace biosoup {
+class NucleicAcid;
+}
+
 namespace ram {
 
 // Projects a type T into an integral type which can be used in a radix sort.
@@ -54,6 +60,16 @@ inline void RadixSort(std::span<T> values, std::uint8_t max_bits, Proj proj) {
     std::ranges::copy(values, sorted_values.begin());
   }
 }
+
+struct MinimizeConfig {
+  std::uint32_t kmer_length;
+  std::uint32_t window_length;
+  bool minhash = false;
+};
+
+std::vector<Kmer> Minimize(
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    MinimizeConfig config);
 
 }  // namespace ram
 

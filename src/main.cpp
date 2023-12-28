@@ -4,12 +4,15 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <mutex>
 
 #include "bioparser/fasta_parser.hpp"
 #include "bioparser/fastq_parser.hpp"
-#include "biosoup/progress_bar.hpp"
 #include "biosoup/nucleic_acid.hpp"
+#include "biosoup/progress_bar.hpp"
 #include "biosoup/timer.hpp"
+#include "ram/algorithm.hpp"
+#include "tbb/tbb.h"
 
 std::atomic<std::uint32_t> biosoup::NucleicAcid::num_objects{0};
 
@@ -198,99 +201,117 @@ int main(int argc, char** argv) {
 
   biosoup::Timer timer{};
 
-  // while (true) {
-  //   timer.Start();
+  while (true) {
+    timer.Start();
 
-  //   std::vector<std::unique_ptr<biosoup::NucleicAcid>> targets;
-  //   try {
-  //     targets = tparser->Parse(1ULL << 32);
-  //   } catch (std::invalid_argument& exception) {
-  //     std::cerr << exception.what() << std::endl;
-  //     return 1;
-  //   }
+    std::vector<std::unique_ptr<biosoup::NucleicAcid>> targets;
+    try {
+      targets = tparser->Parse(1ULL << 32);
+    } catch (std::invalid_argument& exception) {
+      std::cerr << exception.what() << std::endl;
+      return 1;
+    }
 
-  //   if (targets.empty()) {
-  //     break;
-  //   }
+    if (targets.empty()) {
+      break;
+    }
 
-  //   std::cerr << "[ram::] parsed " << targets.size() << " targets "
-  //             << std::fixed << timer.Stop() << "s" << std::endl;
+    std::cerr << "[ram::] parsed " << targets.size() << " targets "
+              << std::fixed << timer.Stop() << "s" << std::endl;
 
-  //   timer.Start();
+    timer.Start();
 
-  //   minimizer_engine.Minimize(targets.begin(), targets.end(), minhash);
-  //   minimizer_engine.Filter(frequency);
+    auto arena = tbb::task_arena(num_threads);
+    auto indices = ram::ConstructIndices(targets, ram::MinimizeConfig{
+                                                      .kmer_length = k,
+                                                      .window_length = w,
+                                                      .minhash = minhash,
+                                                  });
+    auto occurrence = ram::CalculateKmerThreshold(indices, frequency);
 
-  //   std::cerr << "[ram::] minimized targets " << std::fixed << timer.Stop()
-  //             << "s" << std::endl;
+    std::cerr << "[ram::] minimized targets " << std::fixed << timer.Stop()
+              << "s" << std::endl;
 
-  //   std::uint64_t num_targets = biosoup::NucleicAcid::num_objects;
-  //   biosoup::NucleicAcid::num_objects = 0;
+    std::uint64_t num_targets = biosoup::NucleicAcid::num_objects;
+    biosoup::NucleicAcid::num_objects = 0;
 
-  //   while (true) {
-  //     timer.Start();
+    while (true) {
+      timer.Start();
 
-  //     std::vector<std::unique_ptr<biosoup::NucleicAcid>> sequences;
-  //     try {
-  //       sequences = sparser->Parse(1U << 30);
-  //     } catch (std::invalid_argument& exception) {
-  //       std::cerr << exception.what() << std::endl;
-  //       return 1;
-  //     }
+      std::vector<std::unique_ptr<biosoup::NucleicAcid>> sequences;
+      try {
+        sequences = sparser->Parse(1U << 30);
+      } catch (std::invalid_argument& exception) {
+        std::cerr << exception.what() << std::endl;
+        return 1;
+      }
 
-  //     if (sequences.empty()) {
-  //       break;
-  //     }
+      if (sequences.empty()) {
+        break;
+      }
 
-  //     std::vector<std::future<std::vector<biosoup::Overlap>>> futures;
-  //     for (const auto& it : sequences) {
-  //       if (is_ava && it->id >= num_targets) {
-  //         continue;
-  //       }
-  //       futures.emplace_back(thread_pool->Submit(
-  //           [&](const std::unique_ptr<biosoup::NucleicAcid>& sequence)
-  //               -> std::vector<biosoup::Overlap> {
-  //             return minimizer_engine.Map(sequence, is_ava, is_ava, minhash);
-  //           },
-  //           std::ref(it)));
-  //     }
+      biosoup::ProgressBar bar{static_cast<std::uint32_t>(sequences.size()),
+                               16};
+      auto update_progress = [&timer, &bar, mtx = std::mutex{}] {
+        std::lock_guard lk{mtx};
+        if (++bar) {
+          std::cerr << "[ram::] mapped " << bar.event_counter() << "sequences "
+                    << "[" << bar << "] " << std::fixed << timer.Lap() << "s"
+                    << "\r";
+        }
+      };
 
-  //     biosoup::ProgressBar bar{static_cast<std::uint32_t>(futures.size()), 16};
+      std::vector<std::vector<biosoup::Overlap>> overlaps(sequences.size());
+      tbb::parallel_for(0uz, sequences.size(), [&](std::size_t idx) -> void {
+        overlaps[idx] = ram::MapSeqToIndex(sequences[idx], indices,
+                                           ram::MapToIndexConfig{
+                                               .avoid_equal = is_ava,
+                                               .avoid_symmetric = is_ava,
+                                               .occurrence = occurrence,
+                                           },
+                                           ram::MinimizeConfig{
+                                               .kmer_length = k,
+                                               .window_length = w,
+                                               .minhash = minhash,
+                                           },
+                                           ram::ChainConfig{
+                                               .kmer_length = k,
+                                               .bandwidth = bandwidth,
+                                               .chain = chain,
+                                               .min_matches = matches,
+                                               .gap = gap,
+                                           },
+                                           nullptr);
+      });
 
-  //     std::uint64_t rhs_offset = targets.front()->id;
-  //     std::uint64_t lhs_offset = sequences.front()->id;
-  //     for (auto& it : futures) {
-  //       for (const auto& jt : it.get()) {
-  //         std::cout << sequences[jt.lhs_id - lhs_offset]->name << "\t"
-  //                   << sequences[jt.lhs_id - lhs_offset]->inflated_len << "\t"
-  //                   << jt.lhs_begin << "\t" << jt.lhs_end << "\t"
-  //                   << (jt.strand ? "+" : "-") << "\t"
-  //                   << targets[jt.rhs_id - rhs_offset]->name << "\t"
-  //                   << targets[jt.rhs_id - rhs_offset]->inflated_len << "\t"
-  //                   << jt.rhs_begin << "\t" << jt.rhs_end << "\t" << jt.score
-  //                   << "\t"
-  //                   << std::max(jt.lhs_end - jt.lhs_begin,
-  //                               jt.rhs_end - jt.rhs_begin)
-  //                   << "\t" << 255 << std::endl;
-  //       }
+      std::uint64_t rhs_offset = targets.front()->id;
+      std::uint64_t lhs_offset = sequences.front()->id;
+      for (auto& it : overlaps) {
+        for (const auto& jt : it) {
+          std::cout << sequences[jt.lhs_id - lhs_offset]->name << "\t"
+                    << sequences[jt.lhs_id - lhs_offset]->inflated_len << "\t"
+                    << jt.lhs_begin << "\t" << jt.lhs_end << "\t"
+                    << (jt.strand ? "+" : "-") << "\t"
+                    << targets[jt.rhs_id - rhs_offset]->name << "\t"
+                    << targets[jt.rhs_id - rhs_offset]->inflated_len << "\t"
+                    << jt.rhs_begin << "\t" << jt.rhs_end << "\t" << jt.score
+                    << "\t"
+                    << std::max(jt.lhs_end - jt.lhs_begin,
+                                jt.rhs_end - jt.rhs_begin)
+                    << "\t" << 255 << std::endl;
+        }
+      }
+      std::cerr << std::endl;
+      timer.Stop();
 
-  //       if (++bar) {
-  //         std::cerr << "[ram::] mapped " << bar.event_counter() << " sequences "
-  //                   << "[" << bar << "] " << std::fixed << timer.Lap() << "s"
-  //                   << "\r";
-  //       }
-  //     }
-  //     std::cerr << std::endl;
-  //     timer.Stop();
+      if (is_ava && biosoup::NucleicAcid::num_objects >= num_targets) {
+        break;
+      }
+    }
 
-  //     if (is_ava && biosoup::NucleicAcid::num_objects >= num_targets) {
-  //       break;
-  //     }
-  //   }
-
-  //   sparser->Reset();
-  //   biosoup::NucleicAcid::num_objects = num_targets;
-  // }
+    sparser->Reset();
+    biosoup::NucleicAcid::num_objects = num_targets;
+  }
 
   std::cerr << "[ram::] " << timer.elapsed_time() << "s" << std::endl;
 

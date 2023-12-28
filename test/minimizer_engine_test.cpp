@@ -26,11 +26,10 @@ class RamMinimizerEngineTest : public ::testing::Test {
 TEST_F(RamMinimizerEngineTest, Map) {
   auto indices = ConstructIndices(s, MinimizeConfig{});
   auto occurrence = CalculateKmerThreshold(indices, 0.001);
-  std::vector<std::uint32_t> filtered;
 
   auto o = MapSeqToIndex(s.front(), indices,
                          MapToIndexConfig{.occurrence = occurrence},
-                         MinimizeConfig{}, ChainConfig{}, &filtered);
+                         MinimizeConfig{}, ChainConfig{}, nullptr);
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(0, o.front().lhs_id);
   EXPECT_EQ(30, o.front().lhs_begin);
@@ -43,13 +42,13 @@ TEST_F(RamMinimizerEngineTest, Map) {
 
   o = MapSeqToIndex(s.back(), indices,
                     MapToIndexConfig{.occurrence = occurrence},
-                    MinimizeConfig{}, ChainConfig{}, &filtered);
+                    MinimizeConfig{}, ChainConfig{}, nullptr);
   EXPECT_TRUE(o.empty());
 
   o = MapSeqToIndex(
       s.back(), indices,
       MapToIndexConfig{.avoid_symmetric = false, .occurrence = occurrence},
-      MinimizeConfig{}, ChainConfig{}, &filtered);
+      MinimizeConfig{}, ChainConfig{}, nullptr);
 
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(1, o.front().lhs_id);
@@ -65,7 +64,7 @@ TEST_F(RamMinimizerEngineTest, Map) {
                     MapToIndexConfig{.avoid_equal = false,
                                      .avoid_symmetric = true,
                                      .occurrence = occurrence},
-                    MinimizeConfig{}, ChainConfig{}, &filtered);
+                    MinimizeConfig{}, ChainConfig{}, nullptr);
   EXPECT_EQ(2, o.size());
   EXPECT_EQ(0, o.front().lhs_id);
   EXPECT_EQ(2, o.front().lhs_begin);

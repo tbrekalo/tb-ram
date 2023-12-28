@@ -85,6 +85,60 @@ std::vector<Kmer> Minimize(
   return dst;
 }
 
+std::vector<biosoup::Overlap> Map(
+    const std::unique_ptr<biosoup::NucleicAcid>& lhs,
+    const std::unique_ptr<biosoup::NucleicAcid>& rhs,
+    MinimizeConfig minimize_config, ChainConfig chain_config) {
+  auto lhs_sketch = ::ram::Minimize(lhs, minimize_config);
+  if (lhs_sketch.empty()) {
+    return std::vector<biosoup::Overlap>{};
+  }
+
+  auto rhs_sketch = ::ram::Minimize(
+      rhs, MinimizeConfig{.kmer_length = minimize_config.kmer_length,
+                          .window_length = minimize_config.window_length});
+  if (rhs_sketch.empty()) {
+    return std::vector<biosoup::Overlap>{};
+  }
+
+  RadixSort(std::span<Kmer>(lhs_sketch), minimize_config.kmer_length * 2,
+            KmerValueProjection);
+  RadixSort(std::span<Kmer>(rhs_sketch), minimize_config.kmer_length * 2,
+            KmerValueProjection);
+
+  std::uint64_t rhs_id = rhs->id;
+
+  std::vector<Match> matches;
+  for (std::uint32_t i = 0, j = 0; i < lhs_sketch.size(); ++i) {
+    while (j < rhs_sketch.size()) {
+      if (lhs_sketch[i].value < rhs_sketch[j].value) {
+        break;
+      } else if (lhs_sketch[i].value == rhs_sketch[j].value) {
+        for (std::uint32_t k = j; k < rhs_sketch.size(); ++k) {
+          if (lhs_sketch[i].value != rhs_sketch[k].value) {
+            break;
+          }
+
+          std::uint64_t strand =
+              (lhs_sketch[i].strand() & 1) == (rhs_sketch[k].strand() & 1);
+          std::uint64_t lhs_pos = lhs_sketch[i].position();
+          std::uint64_t rhs_pos = rhs_sketch[k].position();
+          std::uint64_t diagonal =
+              !strand ? rhs_pos + lhs_pos : rhs_pos - lhs_pos + (3ULL << 30);
+
+          matches.emplace_back((((rhs_id << 1) | strand) << 32) | diagonal,
+                               (lhs_pos << 32) | rhs_pos);
+        }
+        break;
+      } else {
+        ++j;
+      }
+    }
+  }
+
+  return Chain(lhs->id, std::move(matches), chain_config);
+}
+
 std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
                                     std::vector<Match>&& matches,
                                     ChainConfig config) {

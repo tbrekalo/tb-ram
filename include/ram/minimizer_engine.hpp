@@ -49,12 +49,6 @@ class MinimizerEngine {
       bool minhash = false,  // only lhs
       std::vector<std::uint32_t>* filtered = nullptr) const;
 
-  // find overlaps between a pair of sequences
-  std::vector<biosoup::Overlap> Map(
-      const std::unique_ptr<biosoup::NucleicAcid>& lhs,
-      const std::unique_ptr<biosoup::NucleicAcid>& rhs,
-      bool minhash = false) const;  // only lhs
-
  private:
   std::uint32_t k_;
   std::uint32_t w_;

@@ -4,6 +4,7 @@
 
 #include "bioparser/fasta_parser.hpp"
 #include "gtest/gtest.h"
+#include "ram/algorithm.hpp"
 
 std::atomic<std::uint32_t> biosoup::NucleicAcid::num_objects{0};
 
@@ -67,8 +68,7 @@ TEST_F(RamMinimizerEngineTest, Map) {
 }
 
 TEST_F(RamMinimizerEngineTest, Pair) {
-  MinimizerEngine me{};
-  auto o = me.Map(s.front(), s.back());
+  auto o = Map(s.front(), s.back(), MinimizeConfig{}, ChainConfig{});
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(0, o.front().lhs_id);
   EXPECT_EQ(30, o.front().lhs_begin);
@@ -79,7 +79,7 @@ TEST_F(RamMinimizerEngineTest, Pair) {
   EXPECT_EQ(585, o.front().score);
   EXPECT_TRUE(o.front().strand);
 
-  o = me.Map(s.back(), s.front());
+  o = Map(s.back(), s.front(), MinimizeConfig{}, ChainConfig{});
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(1, o.front().lhs_id);
   EXPECT_EQ(0, o.front().lhs_begin);
@@ -134,7 +134,7 @@ TEST_F(RamMinimizerEngineTest, Micromize) {
   EXPECT_EQ(242, o.front().score);
   EXPECT_TRUE(o.front().strand);
 
-  o = me.Map(s.front(), s.back(), true);
+  o = Map(s.front(), s.back(), MinimizeConfig{.minhash = true}, ChainConfig{});
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(0, o.front().lhs_id);
   EXPECT_EQ(80, o.front().lhs_begin);

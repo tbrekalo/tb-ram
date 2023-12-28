@@ -131,6 +131,13 @@ std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
                                     std::vector<Match>&& matches,
                                     ChainConfig config);
 
+// Find overlaps between a pair of sequences.
+// Minhash argument from configuration will only be applied on the lhs sequence.
+std::vector<biosoup::Overlap> Map(
+    const std::unique_ptr<biosoup::NucleicAcid>& lhs,
+    const std::unique_ptr<biosoup::NucleicAcid>& rhs,
+    MinimizeConfig minimize_config, ChainConfig chain_config);
+
 }  // namespace ram
 
 #endif  // RAM_ALGORITHM_HPP_

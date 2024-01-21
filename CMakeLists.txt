@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
   ram
-  VERSION 2.2.0
+  VERSION 3.0.0
   LANGUAGES CXX
   DESCRIPTION
     "Ram is a c++ implementation of [minimap](https://github.com/lh3/minimap) with few modifications."
@@ -48,6 +48,20 @@ if(NOT biosoup_FOUND)
   if(NOT biosoup_POPULATED)
     FetchContent_Populate(biosoup)
     add_subdirectory(${biosoup_SOURCE_DIR} ${biosoup_BINARY_DIR}
+                     EXCLUDE_FROM_ALL)
+  endif()
+endif()
+
+if(ram_build_exe)
+  FetchContent_Declare(
+    cxxopts
+    GIT_REPOSITORY https://github.com/jarro2783/cxxopts
+    GIT_TAG v3.1.1)
+
+  FetchContent_GetProperties(cxxopts)
+  if(NOT cxxopts_POPULATED)
+    FetchContent_Populate(cxxopts)
+    add_subdirectory(${cxxopts_SOURCE_DIR} ${cxxopts_BINARY_DIR}
                      EXCLUDE_FROM_ALL)
   endif()
 endif()
@@ -104,14 +118,14 @@ if(ram_build_benchmarks)
   endif()
 endif()
 
-add_library(ram src/algorithm.cpp src/types.cpp)
+add_library(ram src/algorithm.cpp src/io.cpp src/types.cpp)
 add_library(ram::ram ALIAS ram)
 
 target_include_directories(
   ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                          $<INSTALL_INTERFACE:include>)
 
-target_link_libraries(ram biosoup::biosoup TBB::tbb)
+target_link_libraries(ram bioparser::bioparser biosoup::biosoup TBB::tbb)
 
 target_compile_options(
   ram
@@ -167,7 +181,7 @@ endif()
 if(ram_build_exe)
   add_executable(ram_exe src/main.cpp)
 
-  target_link_libraries(ram_exe ram bioparser::bioparser)
+  target_link_libraries(ram_exe ram cxxopts::cxxopts)
 
   target_compile_definitions(ram_exe PRIVATE VERSION="${PROJECT_VERSION}")
   set_property(TARGET ram_exe PROPERTY OUTPUT_NAME ram)

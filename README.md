@@ -17,44 +17,48 @@ cmake -DCMAKE_BUILD_TYPE=Release .. && make
 which will create ram library, executable and unit tests. Running the executable will display the following usage:
 
 ```bash
-usage: ram [options ...] <target> [<sequences>]
+sequence mapping tool
+Usage:
+  ram [OPTION...] <target> [<query>]
 
-  # default output is stdout
-  <target>/<sequences>
-    input file in FASTA/FASTQ format (can be compressed with gzip)
+ algorithm options:
+  -k, --kmer-length arg         length of minimizers (default: 15)
+  -w, --window-length arg       length of sliding window from which 
+                                minimizers are sampled (default: 5)
+  -f, --frequency-threshold arg
+                                threshold for ignoring most frequent 
+                                minimizers (default: 0.001)
+      --bandwidth arg           size of bandwidth in which minimizer hits 
+                                can be chained (default: 500)
+      --chain arg               minimal number of chained minimizer hits in 
+                                overlap (default: 4)
+      --matches arg             minimal number of matching bases in overlap 
+                                (default: 100)
+      --gap arg                 maximal gap between minimizer hits in a 
+                                chain (default: 10000)
+      --minhash                 use only a portion of all minimizers
+  -t, --threads arg             number of threads (default: 1)
 
-  options:
-    -k, --kmer-length <int>
-      default: 15
-      length of minimizers
-    -w, --window-length <int>
-      default: 5
-      length of sliding window from which minimizers are sampled
-    -f, --frequency-threshold <float>
-      default: 0.001
-      threshold for ignoring most frequent minimizers
-    --bandwidth <int>
-      default: 500
-      size of bandwidth in which minimizer hits can be chained
-    --chain <int>
-      default: 4
-      minimal number of chained minimizer hits in overlap
-    --matches <int>
-      default: 100
-      minimal number of matching bases in overlap
-    --gap <int>
-      default: 10000
-      maximal gap between minimizer hits in a chain
-    --minhash
-      use only a portion of all minimizers
-    -t, --threads <int>
-      default: 1
-      number of threads
-    --version
-      prints the version number
-    -h, --help
-      prints the usage
+ info options:
+  -v, --version  print version and exit early
+  -h, --help     print help and exit early
+
+ mode options:
+      --mode arg  ram operating mode (match|overlap) (default: overlap)
+
 ```
+
+## Modes
+
+There are two output modes. `Overlap` mode outputs standard overlaps between sequences in paf format. While `match` mode provides more detail printing matches in tsv format.
+
+### Match tsv implicit header
+
+```txt
+query_name query_length query_match_position strand target_name target_length target_match_position
+```
+
+## Installation
 
 Running `make install` will install the executable. In order to install the library, both biosoup and thread_pool (see Dependencies) need to be installed beforehand, and option `ram_install` used while configuring the build. Once the library is installed, a package will be copied to your system that can be searched and linked with:
 

@@ -7,6 +7,31 @@
 
 namespace ram {
 
+struct MinimizeConfig {
+  std::uint32_t kmer_length = 15;
+  std::uint32_t window_length = 5;
+  bool minhash = false;
+};
+
+struct ChainConfig {
+  std::uint32_t kmer_length = 15;
+  std::uint32_t bandwidth = 500;
+  std::uint32_t chain = 4;
+  std::uint32_t min_matches = 100;
+  std::uint64_t gap = 10'000;
+};
+
+struct MapToIndexConfig {
+  bool avoid_equal = true;
+  bool avoid_symmetric = true;
+  std::uint32_t occurrence = -1;
+};
+
+struct AlgoConfig {
+  MinimizeConfig minimize;
+  ChainConfig chain;
+};
+
 struct Kmer {
  public:
   Kmer();

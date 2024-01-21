@@ -228,20 +228,19 @@ std::uint32_t CalculateKmerThreshold(std::vector<Index> indices,
   return occurrences[(1 - frequency) * occurrences.size()] + 1;
 }
 
-std::vector<biosoup::Overlap> MapPairs(
-    const std::unique_ptr<biosoup::NucleicAcid>& lhs,
-    const std::unique_ptr<biosoup::NucleicAcid>& rhs,
-    MinimizeConfig minimize_config, ChainConfig chain_config) {
+std::vector<Match> MatchPairs(const std::unique_ptr<biosoup::NucleicAcid>& lhs,
+                              const std::unique_ptr<biosoup::NucleicAcid>& rhs,
+                              MinimizeConfig minimize_config) {
   auto lhs_sketch = Minimize(lhs, minimize_config);
   if (lhs_sketch.empty()) {
-    return std::vector<biosoup::Overlap>{};
+    return std::vector<Match>{};
   }
 
   auto rhs_sketch = Minimize(
       rhs, MinimizeConfig{.kmer_length = minimize_config.kmer_length,
                           .window_length = minimize_config.window_length});
   if (rhs_sketch.empty()) {
-    return std::vector<biosoup::Overlap>{};
+    return std::vector<Match>{};
   }
 
   RadixSort(std::span<Kmer>(lhs_sketch), minimize_config.kmer_length * 2,
@@ -279,7 +278,14 @@ std::vector<biosoup::Overlap> MapPairs(
     }
   }
 
-  return Chain(lhs->id, std::move(matches), chain_config);
+  return matches;
+}
+
+std::vector<biosoup::Overlap> MapPairs(
+    const std::unique_ptr<biosoup::NucleicAcid>& lhs,
+    const std::unique_ptr<biosoup::NucleicAcid>& rhs,
+    MinimizeConfig minimize_config, ChainConfig chain_config) {
+  return Chain(lhs->id, MatchPairs(lhs, rhs, minimize_config), chain_config);
 }
 
 std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
@@ -397,14 +403,14 @@ std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
   return dst;
 }
 
-std::vector<biosoup::Overlap> MapSeqToIndex(
+std::vector<Match> MatchToIndex(
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
-    const std::vector<Index>& indices, MapToIndexConfig map_config,
+    std::span<const Index> indices, MapToIndexConfig map_config,
     MinimizeConfig minimize_config, ChainConfig chain_config,
     std::vector<std::uint32_t>* filtered) {
   auto sketch = Minimize(sequence, minimize_config);
   if (sketch.empty()) {
-    return std::vector<biosoup::Overlap>{};
+    return std::vector<Match>{};
   }
 
   std::vector<Match> matches;
@@ -485,7 +491,18 @@ std::vector<biosoup::Overlap> MapSeqToIndex(
     }
   }
 
-  return Chain(sequence->id, std::move(matches), chain_config);
+  return matches;
+}
+
+std::vector<biosoup::Overlap> MapToIndex(
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::span<const Index> indices, MapToIndexConfig map_config,
+    MinimizeConfig minimize_config, ChainConfig chain_config,
+    std::vector<std::uint32_t>* filtered) {
+  return Chain(sequence->id,
+               MatchToIndex(sequence, indices, map_config, minimize_config,
+                            chain_config, filtered),
+               chain_config);
 }
 
 }  // namespace ram

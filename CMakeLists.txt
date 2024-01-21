@@ -21,6 +21,7 @@ include(CMakePackageConfigHelpers)
 if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
   set(RAM_MAIN_PROJECT ON)
 endif()
+
 option(ram_install "Generate library install target" OFF)
 option(ram_build_exe "Build executable" ${RAM_MAIN_PROJECT})
 option(ram_build_tests "Build unit tests" ${RAM_MAIN_PROJECT})
@@ -28,6 +29,7 @@ option(ram_build_benchmarks "Build microbenchmarks" ${RAM_MAIN_PROJECT})
 option(ram_addres_sanitize
        "Build ram with ASAN support in Debug and RelWithDebInfo builds."
        ${RAM_MAIN_PROJECT})
+option(ram_compile_diagnostics "Build ram with compile time diagnostics" OFF)
 
 find_package(TBB REQUIRED)
 find_package(biosoup 0.10.0 QUIET)
@@ -120,10 +122,7 @@ target_compile_options(
           -Wpedantic
           -Wshadow
           -Wunused
-          -march=native
-          $<$<CXX_COMPILER_ID:GNU>:-Wsuggest-attribute=const>
-          $<$<CXX_COMPILER_ID:GNU>:-Wsuggest-attribute=noreturn>
-          $<$<CXX_COMPILER_ID:GNU>:-Wsuggest-attribute=pure>)
+          -march=native)
 
 if(ram_addres_sanitize)
   target_compile_options(
@@ -131,6 +130,15 @@ if(ram_addres_sanitize)
                $<$<CONFIG:Debug,RelWithDebInfo>:-fno-omit-frame-pointer>)
   target_link_options(ram PUBLIC
                       $<$<CONFIG:Debug,RelWithDebInfo>:-fsanitize=address>)
+endif()
+
+if(ram_compile_diagnostics)
+  target_compile_options(
+    ram
+    PRIVATE $<$<CXX_COMPILER_ID:GNU>:-Wsuggest-attribute=const>
+            $<$<CXX_COMPILER_ID:GNU>:-Wsuggest-attribute=noreturn>
+            $<$<CXX_COMPILER_ID:GNU>:-Wsuggest-attribute=pure>
+            $<$<CXX_COMPILER_ID:Clang>:-Rpass-analysis=loop-vectorize>)
 endif()
 
 if(ram_install)

@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <mutex>
+#include <string_view>
 
 #include "biosoup/nucleic_acid.hpp"
 #include "biosoup/progress_bar.hpp"
@@ -12,10 +13,58 @@
 #include "ram/io.hpp"
 #include "tbb/tbb.h"
 
+enum class Mode {
+  kIdle,
+  kMatch,
+  kOverlap,
+};
+
+std::ostream& operator<<(std::ostream& ostrm, Mode mode) {
+  switch (mode) {
+    case Mode::kIdle:
+      return ostrm << "idle";
+    case Mode::kMatch:
+      return ostrm << "match";
+    case Mode::kOverlap:
+      return ostrm << "overlap";
+  }
+}
+
+std::istream& operator>>(std::istream& istrm, Mode& mode) {
+  using namespace std::literals;
+  std::string repr;
+  istrm >> repr;
+
+  if (repr == "idle"sv) {
+    mode = Mode::kIdle;
+    return istrm;
+  }
+
+  if (repr == "match"sv) {
+    mode = Mode::kMatch;
+    return istrm;
+  }
+
+  if (repr == "overlap"sv) {
+    mode = Mode::kOverlap;
+    return istrm;
+  }
+
+  istrm.setstate(std::ios::failbit);
+  return istrm;
+}
+
 int main(int argc, char** argv) {
   cxxopts::Options options("ram", "sequence mapping tool");
 
   /* clang-format off */
+  options.add_options()
+    ("inputs", "target and query seuqnces",
+      cxxopts::value<std::vector<std::string>>());
+  options.add_options("mode")
+    ("mode",
+      "ram operating mode (match|overlap)",
+      cxxopts::value<Mode>()->default_value("overlap"));
   options.add_options("algorithm")
     ("k,kmer-length",
       "length of minimizers",
@@ -43,9 +92,6 @@ int main(int argc, char** argv) {
     ("t,threads",
       "number of threads",
       cxxopts::value<std::uint32_t>()->default_value("1"));
-  options.add_options("input")
-    ("inputs", "target and query seuqnces",
-      cxxopts::value<std::vector<std::string>>());
   options.add_options("info")
     ("v,version", "print version and exit early")
     ("h,help", "print help and exit early");

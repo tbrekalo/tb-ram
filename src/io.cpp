@@ -6,6 +6,7 @@
 #include "bioparser/fasta_parser.hpp"
 #include "bioparser/fastq_parser.hpp"
 #include "biosoup/nucleic_acid.hpp"
+#include "biosoup/overlap.hpp"
 
 std::atomic<std::uint32_t> biosoup::NucleicAcid::num_objects{0};
 
@@ -38,5 +39,27 @@ std::unique_ptr<bioparser::Parser<biosoup::NucleicAcid>> CreateParser(
           << ".fq, .fq.gz)";
     return ostrm.str();
   }());
+}
+
+void PrintOverlapBatch(
+    std::ostream& ostrm,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> sequences,
+    std::span<const std::vector<biosoup::Overlap>> overlaps) {
+  std::uint64_t rhs_offset = targets.front()->id;
+  std::uint64_t lhs_offset = sequences.front()->id;
+  for (auto& it : overlaps) {
+    for (const auto& jt : it) {
+      ostrm << sequences[jt.lhs_id - lhs_offset]->name << "\t"
+            << sequences[jt.lhs_id - lhs_offset]->inflated_len << "\t"
+            << jt.lhs_begin << "\t" << jt.lhs_end << "\t"
+            << (jt.strand ? "+" : "-") << "\t"
+            << targets[jt.rhs_id - rhs_offset]->name << "\t"
+            << targets[jt.rhs_id - rhs_offset]->inflated_len << "\t"
+            << jt.rhs_begin << "\t" << jt.rhs_end << "\t" << jt.score << "\t"
+            << std::max(jt.lhs_end - jt.lhs_begin, jt.rhs_end - jt.rhs_begin)
+            << "\t" << 255 << std::endl;
+    }
+  }
 }
 }  // namespace ram

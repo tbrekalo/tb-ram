@@ -122,7 +122,11 @@ int main(int argc, char** argv) {
 
         timer.Start();
         auto indices = ram::ConstructIndices(targets, minimize_cfg);
-        auto occurrence = ram::CalculateKmerThreshold(indices, frequency);
+        auto map_to_index_cfg = ram::MapToIndexConfig{
+            .avoid_equal = is_ava,
+            .avoid_symmetric = is_ava,
+            .occurrence = ram::CalculateKmerThreshold(indices, frequency),
+        };
 
         std::cerr << "[ram::] minimized targets " << std::fixed << timer.Stop()
                   << "s" << std::endl;
@@ -141,13 +145,14 @@ int main(int argc, char** argv) {
 
           biosoup::ProgressBar bar{static_cast<std::uint32_t>(sequences.size()),
                                    16};
-          auto update_progress = [&timer, &bar, mtx = std::mutex{}] mutable {
-            std::lock_guard lk{mtx};
+          std::mutex bar_mtx;
+          auto update_progress = [&timer, &bar, &bar_mtx,
+                                  n = sequences.size()] {
+            std::lock_guard lk{bar_mtx};
             if (++bar) {
-              std::cerr << "[ram::] mapped " << bar.event_counter()
-                        << " sequences "
-                        << "[" << bar << "] " << std::fixed << timer.Lap()
-                        << "s"
+              std::cerr << "[ram::] batch progress "
+                        << 100. * bar.event_counter() / n << "[" << bar << "] "
+                        << std::fixed << timer.Lap() << "s"
                         << "\r";
             }
           };
@@ -156,33 +161,12 @@ int main(int argc, char** argv) {
           tbb::parallel_for(
               0uz, sequences.size(), [&](std::size_t idx) -> void {
                 overlaps[idx] =
-                    ram::MapSeqToIndex(sequences[idx], indices,
-                                       ram::MapToIndexConfig{
-                                           .avoid_equal = is_ava,
-                                           .avoid_symmetric = is_ava,
-                                           .occurrence = occurrence,
-                                       },
-                                       minimize_cfg, chain_cfg, nullptr);
+                    ram::MapToIndex(sequences[idx], indices, map_to_index_cfg,
+                                    minimize_cfg, chain_cfg, nullptr);
                 update_progress();
               });
 
-          std::uint64_t rhs_offset = targets.front()->id;
-          std::uint64_t lhs_offset = sequences.front()->id;
-          for (auto& it : overlaps) {
-            for (const auto& jt : it) {
-              std::cout << sequences[jt.lhs_id - lhs_offset]->name << "\t"
-                        << sequences[jt.lhs_id - lhs_offset]->inflated_len
-                        << "\t" << jt.lhs_begin << "\t" << jt.lhs_end << "\t"
-                        << (jt.strand ? "+" : "-") << "\t"
-                        << targets[jt.rhs_id - rhs_offset]->name << "\t"
-                        << targets[jt.rhs_id - rhs_offset]->inflated_len << "\t"
-                        << jt.rhs_begin << "\t" << jt.rhs_end << "\t"
-                        << jt.score << "\t"
-                        << std::max(jt.lhs_end - jt.lhs_begin,
-                                    jt.rhs_end - jt.rhs_begin)
-                        << "\t" << 255 << std::endl;
-            }
-          }
+          ram::PrintOverlapBatch(std::cout, targets, sequences, overlaps);
           std::cerr << std::endl;
           timer.Stop();
 

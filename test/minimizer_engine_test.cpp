@@ -27,7 +27,7 @@ TEST_F(RamMinimizerEngineTest, Map) {
   auto indices = ConstructIndices(s, MinimizeConfig{});
   auto occurrence = CalculateKmerThreshold(indices, 0.001);
 
-  auto o = MapSeqToIndex(s.front(), indices,
+  auto o = MapToIndex(s.front(), indices,
                          MapToIndexConfig{.occurrence = occurrence},
                          MinimizeConfig{}, ChainConfig{}, nullptr);
   EXPECT_EQ(1, o.size());
@@ -40,12 +40,12 @@ TEST_F(RamMinimizerEngineTest, Map) {
   EXPECT_EQ(585, o.front().score);
   EXPECT_TRUE(o.front().strand);
 
-  o = MapSeqToIndex(s.back(), indices,
+  o = MapToIndex(s.back(), indices,
                     MapToIndexConfig{.occurrence = occurrence},
                     MinimizeConfig{}, ChainConfig{}, nullptr);
   EXPECT_TRUE(o.empty());
 
-  o = MapSeqToIndex(
+  o = MapToIndex(
       s.back(), indices,
       MapToIndexConfig{.avoid_symmetric = false, .occurrence = occurrence},
       MinimizeConfig{}, ChainConfig{}, nullptr);
@@ -60,7 +60,7 @@ TEST_F(RamMinimizerEngineTest, Map) {
   EXPECT_EQ(585, o.front().score);
   EXPECT_TRUE(o.front().strand);
 
-  o = MapSeqToIndex(s.front(), indices,
+  o = MapToIndex(s.front(), indices,
                     MapToIndexConfig{.avoid_equal = false,
                                      .avoid_symmetric = true,
                                      .occurrence = occurrence},
@@ -106,7 +106,7 @@ TEST_F(RamMinimizerEngineTest, Filter) {
   auto occurrence_0_001 = CalculateKmerThreshold(indices, 0.001);
   std::vector<std::uint32_t> filtered;
 
-  auto o = MapSeqToIndex(
+  auto o = MapToIndex(
       s.front(), indices, MapToIndexConfig{.occurrence = occurrence_0_001},
       minimize_config, ChainConfig{.kmer_length = 9}, &filtered);
 
@@ -122,7 +122,7 @@ TEST_F(RamMinimizerEngineTest, Filter) {
 
   auto occurrence_0_1 = CalculateKmerThreshold(indices, 0.1);
 
-  o = MapSeqToIndex(s.front(), indices,
+  o = MapToIndex(s.front(), indices,
                     MapToIndexConfig{.occurrence = occurrence_0_1},
                     minimize_config, ChainConfig{.kmer_length = 9}, &filtered);
   EXPECT_EQ(1, o.size());
@@ -141,7 +141,7 @@ TEST_F(RamMinimizerEngineTest, Micromize) {
   std::vector<std::uint32_t> filtered;
 
   auto o =
-      MapSeqToIndex(s.front(), indices, MapToIndexConfig{},
+      MapToIndex(s.front(), indices, MapToIndexConfig{},
                     MinimizeConfig{.minhash = true}, ChainConfig{}, &filtered);
 
   EXPECT_EQ(1, o.size());

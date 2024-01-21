@@ -6,6 +6,7 @@
 #include <span>
 
 #include "bioparser/parser.hpp"
+#include "ram/types.hpp"
 
 namespace biosoup {
 
@@ -21,9 +22,15 @@ std::unique_ptr<bioparser::Parser<biosoup::NucleicAcid>> CreateParser(
 
 void PrintOverlapBatch(
     std::ostream& ostrm,
-    std::span<const std::unique_ptr<biosoup::NucleicAcid>> batch_targets,
-    std::span<const std::unique_ptr<biosoup::NucleicAcid>> batch_queries,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> queries,
     std::span<const std::vector<biosoup::Overlap>> overlaps);
+
+void PrintMatchBatch(
+    std::ostream& ostrm,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> queries,
+    std::span<const std::vector<Match>> matches);
 
 }  // namespace ram
 

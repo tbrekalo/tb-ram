@@ -405,7 +405,7 @@ std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
 
 std::vector<Match> MatchToIndex(
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
-    const std::vector<Index>& indices, MapToIndexConfig map_config,
+    std::span<const Index> indices, MapToIndexConfig map_config,
     MinimizeConfig minimize_config, ChainConfig chain_config,
     std::vector<std::uint32_t>* filtered) {
   auto sketch = Minimize(sequence, minimize_config);
@@ -496,7 +496,7 @@ std::vector<Match> MatchToIndex(
 
 std::vector<biosoup::Overlap> MapToIndex(
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
-    const std::vector<Index>& indices, MapToIndexConfig map_config,
+    std::span<const Index> indices, MapToIndexConfig map_config,
     MinimizeConfig minimize_config, ChainConfig chain_config,
     std::vector<std::uint32_t>* filtered) {
   return Chain(sequence->id,

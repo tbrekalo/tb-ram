@@ -14,15 +14,12 @@
 #include "tbb/tbb.h"
 
 enum class Mode {
-  kIdle,
   kMatch,
   kOverlap,
 };
 
 std::ostream& operator<<(std::ostream& ostrm, Mode mode) {
   switch (mode) {
-    case Mode::kIdle:
-      return ostrm << "idle";
     case Mode::kMatch:
       return ostrm << "match";
     case Mode::kOverlap:
@@ -34,11 +31,6 @@ std::istream& operator>>(std::istream& istrm, Mode& mode) {
   using namespace std::literals;
   std::string repr;
   istrm >> repr;
-
-  if (repr == "idle"sv) {
-    mode = Mode::kIdle;
-    return istrm;
-  }
 
   if (repr == "match"sv) {
     mode = Mode::kMatch;
@@ -53,6 +45,48 @@ std::istream& operator>>(std::istream& istrm, Mode& mode) {
   istrm.setstate(std::ios::failbit);
   return istrm;
 }
+
+struct BatchContext {
+  ram::AlgoConfig algo_cfg;
+  ram::MapToIndexConfig map2index_cfg;
+  std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets;
+  std::span<const std::unique_ptr<biosoup::NucleicAcid>> sequences;
+  std::span<ram::Index> indices;
+  std::function<void()> update_progress;
+};
+
+template <Mode mode>
+static const auto ExecuteBatchImpl = [](BatchContext ctx) -> void {
+  auto [operation, prototype, print] = [] {
+    if constexpr (mode == Mode::kMatch) {
+      return std::tuple{&ram::MatchToIndex, std::vector<ram::Match>{},
+                        &ram::PrintMatchBatch};
+    } else {
+      return std::tuple{&ram::MapToIndex, std::vector<biosoup::Overlap>{},
+                        &ram::PrintOverlapBatch};
+    }
+  }();
+
+  std::vector<decltype(prototype)> values(ctx.sequences.size());
+  tbb::parallel_for(0uz, ctx.sequences.size(), [&](std::size_t idx) -> void {
+    values[idx] = operation(ctx.sequences[idx], ctx.indices, ctx.map2index_cfg,
+                            ctx.algo_cfg.minimize, ctx.algo_cfg.chain, nullptr);
+    ctx.update_progress();
+  });
+
+  print(std::cout, ctx.targets, ctx.sequences, values);
+};
+
+static const auto ExecuteBatch = [](Mode mode, BatchContext ctx) -> void {
+  switch (mode) {
+    case Mode::kMatch:
+      ExecuteBatchImpl<Mode::kMatch>(ctx);
+      break;
+    case Mode::kOverlap:
+      ExecuteBatchImpl<Mode::kOverlap>(ctx);
+      break;
+  }
+};
 
 int main(int argc, char** argv) {
   cxxopts::Options options("ram", "sequence mapping tool");
@@ -135,19 +169,22 @@ int main(int argc, char** argv) {
     auto num_threads = parsed_options["threads"].as<std::uint32_t>();
     auto frequency = parsed_options["frequency-threshold"].as<double>();
 
-    auto minimize_cfg = ram::MinimizeConfig{
-        .kmer_length = parsed_options["kmer-length"].as<std::uint32_t>(),
-        .window_length = parsed_options["window-length"].as<std::uint32_t>(),
-        .minhash = parsed_options["minhash"].as<bool>(),
-    };
-
-    auto chain_cfg = ram::ChainConfig{
-        .kmer_length = parsed_options["kmer-length"].as<std::uint32_t>(),
-        .bandwidth = parsed_options["bandwidth"].as<std::uint32_t>(),
-        .chain = parsed_options["chain"].as<std::uint32_t>(),
-        .min_matches = parsed_options["matches"].as<std::uint32_t>(),
-        .gap = parsed_options["gap"].as<std::uint64_t>(),
-    };
+    auto cfg = ram::AlgoConfig{
+        .minimize =
+            ram::MinimizeConfig{
+                .kmer_length =
+                    parsed_options["kmer-length"].as<std::uint32_t>(),
+                .window_length =
+                    parsed_options["window-length"].as<std::uint32_t>(),
+                .minhash = parsed_options["minhash"].as<bool>(),
+            },
+        .chain = ram::ChainConfig{
+            .kmer_length = parsed_options["kmer-length"].as<std::uint32_t>(),
+            .bandwidth = parsed_options["bandwidth"].as<std::uint32_t>(),
+            .chain = parsed_options["chain"].as<std::uint32_t>(),
+            .min_matches = parsed_options["matches"].as<std::uint32_t>(),
+            .gap = parsed_options["gap"].as<std::uint64_t>(),
+        }};
 
     auto arena = tbb::task_arena(num_threads);
     biosoup::Timer timer{};
@@ -155,10 +192,8 @@ int main(int argc, char** argv) {
     arena.execute([&] {
       while (true) {
         timer.Start();
-
         std::vector<std::unique_ptr<biosoup::NucleicAcid>> targets;
         targets = tparser->Parse(1ULL << 32);
-
         if (targets.empty()) {
           break;
         }
@@ -167,7 +202,7 @@ int main(int argc, char** argv) {
                   << std::fixed << timer.Stop() << "s" << std::endl;
 
         timer.Start();
-        auto indices = ram::ConstructIndices(targets, minimize_cfg);
+        auto indices = ram::ConstructIndices(targets, cfg.minimize);
         auto map_to_index_cfg = ram::MapToIndexConfig{
             .avoid_equal = is_ava,
             .avoid_symmetric = is_ava,
@@ -181,38 +216,26 @@ int main(int argc, char** argv) {
         biosoup::NucleicAcid::num_objects = 0;
         while (true) {
           timer.Start();
-
           std::vector<std::unique_ptr<biosoup::NucleicAcid>> sequences;
           sequences = sparser->Parse(1U << 30);
-
           if (sequences.empty()) {
             break;
           }
 
+          std::mutex bar_mtx;
           biosoup::ProgressBar bar{static_cast<std::uint32_t>(sequences.size()),
                                    16};
-          std::mutex bar_mtx;
-          auto update_progress = [&timer, &bar, &bar_mtx,
-                                  n = sequences.size()] {
-            std::lock_guard lk{bar_mtx};
-            if (++bar) {
-              std::cerr << "[ram::] batch progress "
-                        << 100. * bar.event_counter() / n << "[" << bar << "] "
-                        << std::fixed << timer.Lap() << "s"
-                        << "\r";
-            }
-          };
-
-          std::vector<std::vector<biosoup::Overlap>> overlaps(sequences.size());
-          tbb::parallel_for(
-              0uz, sequences.size(), [&](std::size_t idx) -> void {
-                overlaps[idx] =
-                    ram::MapToIndex(sequences[idx], indices, map_to_index_cfg,
-                                    minimize_cfg, chain_cfg, nullptr);
-                update_progress();
-              });
-
-          ram::PrintOverlapBatch(std::cout, targets, sequences, overlaps);
+          ExecuteBatchImpl<Mode::kOverlap>(
+              {cfg, map_to_index_cfg, targets, sequences, indices,
+               [&timer, &bar, &bar_mtx, n = sequences.size()] {
+                 std::lock_guard lk{bar_mtx};
+                 if (++bar) {
+                   std::cerr << "[ram::] batch progress "
+                             << 100. * bar.event_counter() / n << "% [" << bar
+                             << "] " << std::fixed << timer.Lap() << "s"
+                             << "\r";
+                 }
+               }});
           std::cerr << std::endl;
           timer.Stop();
 

@@ -106,22 +106,21 @@ int main(int argc, char** argv) {
     auto arena = tbb::task_arena(num_threads);
     biosoup::Timer timer{};
 
-    while (true) {
-      timer.Start();
+    arena.execute([&] {
+      while (true) {
+        timer.Start();
 
-      std::vector<std::unique_ptr<biosoup::NucleicAcid>> targets;
-      targets = tparser->Parse(1ULL << 32);
+        std::vector<std::unique_ptr<biosoup::NucleicAcid>> targets;
+        targets = tparser->Parse(1ULL << 32);
 
-      if (targets.empty()) {
-        break;
-      }
+        if (targets.empty()) {
+          break;
+        }
 
-      std::cerr << "[ram::] parsed " << targets.size() << " targets "
-                << std::fixed << timer.Stop() << "s" << std::endl;
+        std::cerr << "[ram::] parsed " << targets.size() << " targets "
+                  << std::fixed << timer.Stop() << "s" << std::endl;
 
-      timer.Start();
-
-      arena.execute([&] {
+        timer.Start();
         auto indices = ram::ConstructIndices(targets, minimize_cfg);
         auto occurrence = ram::CalculateKmerThreshold(indices, frequency);
 
@@ -130,7 +129,6 @@ int main(int argc, char** argv) {
 
         std::uint64_t num_targets = biosoup::NucleicAcid::num_objects;
         biosoup::NucleicAcid::num_objects = 0;
-
         while (true) {
           timer.Start();
 
@@ -195,8 +193,8 @@ int main(int argc, char** argv) {
 
         sparser->Reset();
         biosoup::NucleicAcid::num_objects = num_targets;
-      });
-    }
+      }
+    });
 
     std::cerr << "[ram::] " << timer.elapsed_time() << "s" << std::endl;
   } catch (const std::exception& exception) {

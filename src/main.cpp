@@ -186,6 +186,7 @@ int main(int argc, char** argv) {
             .gap = parsed_options["gap"].as<std::uint64_t>(),
         }};
 
+    const auto mode = parsed_options["mode"].as<Mode>();
     auto arena = tbb::task_arena(num_threads);
     biosoup::Timer timer{};
 
@@ -225,17 +226,18 @@ int main(int argc, char** argv) {
           std::mutex bar_mtx;
           biosoup::ProgressBar bar{static_cast<std::uint32_t>(sequences.size()),
                                    16};
-          ExecuteBatchImpl<Mode::kOverlap>(
-              {cfg, map_to_index_cfg, targets, sequences, indices,
-               [&timer, &bar, &bar_mtx, n = sequences.size()] {
-                 std::lock_guard lk{bar_mtx};
-                 if (++bar) {
-                   std::cerr << "[ram::] batch progress "
-                             << 100. * bar.event_counter() / n << "% [" << bar
-                             << "] " << std::fixed << timer.Lap() << "s"
-                             << "\r";
-                 }
-               }});
+          ExecuteBatch(mode,
+                       {cfg, map_to_index_cfg, targets, sequences, indices,
+                        [&timer, &bar, &bar_mtx, n = sequences.size()] {
+                          std::lock_guard lk{bar_mtx};
+                          if (++bar) {
+                            std::cerr << "[ram::] batch progress "
+                                      << 100. * bar.event_counter() / n << "% ["
+                                      << bar << "] " << std::fixed
+                                      << timer.Lap() << "s"
+                                      << "\r";
+                          }
+                        }});
           std::cerr << std::endl;
           timer.Stop();
 

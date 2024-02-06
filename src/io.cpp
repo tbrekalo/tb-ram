@@ -58,15 +58,24 @@ void PrintOverlapBatch(
   std::uint64_t lhs_offset = queries.front()->id;
   for (const auto& it : overlaps) {
     for (const auto& jt : it) {
-      ostrm << queries[jt.lhs_id - lhs_offset]->name << '\t'
-            << queries[jt.lhs_id - lhs_offset]->inflated_len << '\t'
-            << jt.lhs_begin << '\t' << jt.lhs_end << '\t'
-            << (jt.strand ? '+' : '-') << "\t"
-            << targets[jt.rhs_id - rhs_offset]->name << '\t'
-            << targets[jt.rhs_id - rhs_offset]->inflated_len << '\t'
-            << jt.rhs_begin << '\t' << jt.rhs_end << '\t' << jt.score << '\t'
-            << std::max(jt.lhs_end - jt.lhs_begin, jt.rhs_end - jt.rhs_begin)
-            << '\t' << 255 << '\n';
+      /* clang-format off */
+      ostrm << queries[jt.lhs_id - lhs_offset]->name
+            << '\t' << queries[jt.lhs_id - lhs_offset]->inflated_len
+            << '\t' << jt.lhs_begin
+            << '\t' << jt.lhs_end
+
+            << '\t' << (jt.strand ? '+' : '-')
+
+            << "\t" << targets[jt.rhs_id - rhs_offset]->name
+            << '\t' << targets[jt.rhs_id - rhs_offset]->inflated_len
+            << '\t' << jt.rhs_begin
+            << '\t' << jt.rhs_end
+
+            << '\t' << jt.score
+            << '\t' << std::max(jt.lhs_end - jt.lhs_begin, jt.rhs_end - jt.rhs_begin)
+            << '\t' << 255
+            << '\n';
+      /* clang-format on */
     }
   }
 
@@ -80,14 +89,20 @@ void PrintMatchBatch(
     std::span<const std::vector<Match>> matches) {
   std::uint64_t rhs_offset = targets.front()->id;
   for (auto lhs_idx = 0uz; lhs_idx < matches.size(); ++lhs_idx) {
+    /* clang-format off */
     for (const auto& match : matches[lhs_idx]) {
-      ostrm << queries[lhs_idx]->name << '\t' << queries[lhs_idx]->inflated_len
-            << '\t' << match.lhs_position() << '\t'
-            << (match.strand() ? '+' : '-') << '\t'
-            << targets[match.rhs_id() - rhs_offset]->name << '\t'
-            << targets[match.rhs_id() - rhs_offset]->inflated_len << '\t'
-            << match.rhs_position() << '\n';
+      ostrm << queries[lhs_idx]->name
+            << '\t' << queries[lhs_idx]->inflated_len
+            << '\t' << match.lhs_position()
+
+            << '\t' << (match.strand() ? '+' : '-')
+
+            << '\t' << targets[match.rhs_id() - rhs_offset]->name
+            << '\t' << targets[match.rhs_id() - rhs_offset]->inflated_len
+            << '\t' << match.rhs_position()
+            << '\n';
     }
+    /* clang-format on */
   }
 
   std::flush(ostrm);
@@ -98,20 +113,33 @@ void PrintMatchChainBatch(
     std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
     std::span<const std::unique_ptr<biosoup::NucleicAcid>> queries,
     std::span<const std::vector<MatchChain>> match_chains) {
+  std::uint64_t chain_id = 0;
   std::uint64_t rhs_offset = targets.front()->id;
   for (auto lhs_idx = 0uz; lhs_idx < match_chains.size(); ++lhs_idx) {
     for (const auto& match_chain : match_chains[lhs_idx]) {
       for (const auto& match : match_chain.matches) {
-        ostrm << queries[lhs_idx]->name << '\t'
-              << queries[lhs_idx]->inflated_len << '\t' << match.lhs_position()
-              << '\t' << '\t' << (match.strand() ? '+' : '-') << '\t'
-              << targets[match.rhs_id() - rhs_offset]->name << '\t'
-              << targets[match.rhs_id() - rhs_offset]->inflated_len << '\t'
-              << match.rhs_position() << '\t' << match_chain.lhs_matches << '\t'
-              << match_chain.rhs_matches << '\n';
+        /* clang-format off */
+        ostrm << queries[lhs_idx]->name
+              << '\t' << queries[lhs_idx]->inflated_len
+              << '\t' << match.lhs_position()
+
+              << '\t' << (match.strand() ? '+' : '-')
+
+              << '\t' << targets[match.rhs_id() - rhs_offset]->name
+              << '\t' << targets[match.rhs_id() - rhs_offset]->inflated_len
+              << '\t' << match.rhs_position()
+
+              << '\t' << match_chain.lhs_matches
+              << '\t' << match_chain.rhs_matches
+              << '\t' << chain_id
+              << '\n';
+        /* clang-format on */
       }
+      ++chain_id;
     }
   }
+
+  std::flush(ostrm);
 }
 
 }  // namespace ram

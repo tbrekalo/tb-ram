@@ -27,9 +27,9 @@ TEST_F(RamMinimizerEngineTest, Map) {
   auto indices = ConstructIndices(s, MinimizeConfig{});
   auto occurrence = CalculateKmerThreshold(indices, 0.001);
 
-  auto o = MapToIndex(s.front(), indices,
-                         MapToIndexConfig{.occurrence = occurrence},
-                         MinimizeConfig{}, ChainConfig{}, nullptr);
+  auto o =
+      MapToIndex(s.front(), indices, MapToIndexConfig{.occurrence = occurrence},
+                 MinimizeConfig{}, ChainConfig{}, nullptr);
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(0, o.front().lhs_id);
   EXPECT_EQ(30, o.front().lhs_begin);
@@ -40,9 +40,8 @@ TEST_F(RamMinimizerEngineTest, Map) {
   EXPECT_EQ(585, o.front().score);
   EXPECT_TRUE(o.front().strand);
 
-  o = MapToIndex(s.back(), indices,
-                    MapToIndexConfig{.occurrence = occurrence},
-                    MinimizeConfig{}, ChainConfig{}, nullptr);
+  o = MapToIndex(s.back(), indices, MapToIndexConfig{.occurrence = occurrence},
+                 MinimizeConfig{}, ChainConfig{}, nullptr);
   EXPECT_TRUE(o.empty());
 
   o = MapToIndex(
@@ -61,10 +60,10 @@ TEST_F(RamMinimizerEngineTest, Map) {
   EXPECT_TRUE(o.front().strand);
 
   o = MapToIndex(s.front(), indices,
-                    MapToIndexConfig{.avoid_equal = false,
-                                     .avoid_symmetric = true,
-                                     .occurrence = occurrence},
-                    MinimizeConfig{}, ChainConfig{}, nullptr);
+                 MapToIndexConfig{.avoid_equal = false,
+                                  .avoid_symmetric = true,
+                                  .occurrence = occurrence},
+                 MinimizeConfig{}, ChainConfig{}, nullptr);
   EXPECT_EQ(2, o.size());
   EXPECT_EQ(0, o.front().lhs_id);
   EXPECT_EQ(2, o.front().lhs_begin);
@@ -123,8 +122,8 @@ TEST_F(RamMinimizerEngineTest, Filter) {
   auto occurrence_0_1 = CalculateKmerThreshold(indices, 0.1);
 
   o = MapToIndex(s.front(), indices,
-                    MapToIndexConfig{.occurrence = occurrence_0_1},
-                    minimize_config, ChainConfig{.kmer_length = 9}, &filtered);
+                 MapToIndexConfig{.occurrence = occurrence_0_1},
+                 minimize_config, ChainConfig{.kmer_length = 9}, &filtered);
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(0, o.front().lhs_id);
   EXPECT_EQ(31, o.front().lhs_begin);
@@ -142,7 +141,7 @@ TEST_F(RamMinimizerEngineTest, Micromize) {
 
   auto o =
       MapToIndex(s.front(), indices, MapToIndexConfig{},
-                    MinimizeConfig{.minhash = true}, ChainConfig{}, &filtered);
+                 MinimizeConfig{.minhash = true}, ChainConfig{}, &filtered);
 
   EXPECT_EQ(1, o.size());
   EXPECT_EQ(0, o.front().lhs_id);

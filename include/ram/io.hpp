@@ -32,6 +32,12 @@ void PrintMatchBatch(
     std::span<const std::unique_ptr<biosoup::NucleicAcid>> queries,
     std::span<const std::vector<Match>> matches);
 
+void PrintMatchChainBatch(
+    std::ostream& ostrm,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> queries,
+    std::span<const std::vector<MatchChain>> match_chains);
+
 }  // namespace ram
 
 #endif  // RAM_IO_HPP_

@@ -95,6 +95,12 @@ class Index {
   std::unordered_map<std::uint64_t, std::uint64_t, Hash, KeyEqual> locator;
 };
 
+struct MatchChain {
+  std::vector<Match> matches;
+  std::uint64_t lhs_matches;
+  std::uint64_t rhs_matches;
+};
+
 }  // namespace ram
 
 #endif  // RAM_TYPES_HPP_

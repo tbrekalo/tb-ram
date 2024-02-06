@@ -14,12 +14,15 @@
 #include "tbb/tbb.h"
 
 enum class Mode {
+  kChain,
   kMatch,
   kOverlap,
 };
 
 std::ostream& operator<<(std::ostream& ostrm, Mode mode) {
   switch (mode) {
+    case Mode::kChain:
+      return ostrm << "chain";
     case Mode::kMatch:
       return ostrm << "match";
     case Mode::kOverlap:
@@ -31,6 +34,11 @@ std::istream& operator>>(std::istream& istrm, Mode& mode) {
   using namespace std::literals;
   std::string repr;
   istrm >> repr;
+
+  if (repr == "chain"sv) {
+    mode = Mode::kChain;
+    return istrm;
+  }
 
   if (repr == "match"sv) {
     mode = Mode::kMatch;
@@ -58,7 +66,10 @@ struct BatchContext {
 template <Mode mode>
 static const auto ExecuteBatchImpl = [](BatchContext ctx) -> void {
   auto [operation, prototype, print] = [] {
-    if constexpr (mode == Mode::kMatch) {
+    if constexpr (mode == Mode::kChain) {
+      return std::tuple{&ram::ChainOnIndex, std::vector<ram::MatchChain>{},
+                        &ram::PrintMatchChainBatch};
+    } else if constexpr (mode == Mode::kMatch) {
       return std::tuple{&ram::MatchToIndex, std::vector<ram::Match>{},
                         &ram::PrintMatchBatch};
     } else {
@@ -79,6 +90,9 @@ static const auto ExecuteBatchImpl = [](BatchContext ctx) -> void {
 
 static const auto ExecuteBatch = [](Mode mode, BatchContext ctx) -> void {
   switch (mode) {
+    case Mode::kChain:
+      ExecuteBatchImpl<Mode::kChain>(ctx);
+      break;
     case Mode::kMatch:
       ExecuteBatchImpl<Mode::kMatch>(ctx);
       break;
@@ -95,9 +109,9 @@ int main(int argc, char** argv) {
   options.add_options()
     ("inputs", "target and query seuqnces",
       cxxopts::value<std::vector<std::string>>());
-  options.add_options("mode")
+  options.add_options("io")
     ("mode",
-      "ram operating mode (match|overlap)",
+      "ram operating mode (chain|match|overlap)",
       cxxopts::value<Mode>()->default_value("overlap"));
   options.add_options("algorithm")
     ("k,kmer-length",
@@ -123,9 +137,15 @@ int main(int argc, char** argv) {
       cxxopts::value<std::uint64_t>()->default_value("10000"))
     ("minhash",
       "use only a portion of all minimizers")
+    ("query-batch-size",
+     "maximum query batch size in mebibites",
+     cxxopts::value<std::uint64_t>()->default_value("1024"))
+    ("target-batch-size",
+      "maximum target batch size in mebibytes",
+      cxxopts::value<std::uint64_t>()->default_value("4096"))
     ("t,threads",
       "number of threads",
-      cxxopts::value<std::uint32_t>()->default_value("1"));
+      cxxopts::value<std::uint64_t>()->default_value("1"));
   options.add_options("info")
     ("v,version", "print version and exit early")
     ("h,help", "print help and exit early");
@@ -166,7 +186,7 @@ int main(int argc, char** argv) {
       is_ava = true;
     }
 
-    auto num_threads = parsed_options["threads"].as<std::uint32_t>();
+    auto num_threads = parsed_options["threads"].as<std::uint64_t>();
     auto frequency = parsed_options["frequency-threshold"].as<double>();
 
     auto cfg = ram::AlgoConfig{
@@ -187,14 +207,21 @@ int main(int argc, char** argv) {
         }};
 
     const auto mode = parsed_options["mode"].as<Mode>();
+    const auto query_batch_size =
+        parsed_options["query-batch-size"].as<std::uint64_t>() *
+        (1ULL << 20ULL);
+    const auto target_batch_size =
+        parsed_options["target-batch-size"].as<std::uint64_t>() *
+        (1ULL << 20ULL);
     auto arena = tbb::task_arena(num_threads);
     biosoup::Timer timer{};
 
+    std::ios_base::sync_with_stdio(false);
     arena.execute([&] {
       while (true) {
         timer.Start();
         std::vector<std::unique_ptr<biosoup::NucleicAcid>> targets;
-        targets = tparser->Parse(1ULL << 32);
+        targets = tparser->Parse(target_batch_size);
         if (targets.empty()) {
           break;
         }
@@ -218,7 +245,7 @@ int main(int argc, char** argv) {
         while (true) {
           timer.Start();
           std::vector<std::unique_ptr<biosoup::NucleicAcid>> sequences;
-          sequences = sparser->Parse(1U << 30);
+          sequences = sparser->Parse(query_batch_size);
           if (sequences.empty()) {
             break;
           }

@@ -288,16 +288,13 @@ std::vector<biosoup::Overlap> MapPairs(
   return Chain(lhs->id, MatchPairs(lhs, rhs, minimize_config), chain_config);
 }
 
-std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
-                                    std::vector<Match>&& matches,
-                                    ChainConfig config) {
-  RadixSort(std::span<Match>(matches), 64, MatchGroupProjection);
-  matches.emplace_back(-1, -1);  // stop dummy
-
+static auto FindMatchIntervals(ChainConfig config,
+                               std::span<const Match> matches)
+    -> std::vector<std::pair<std::uint64_t, std::uint64_t>> {
   std::vector<std::pair<std::uint64_t, std::uint64_t>> intervals;
   for (std::uint64_t i = 1, j = 0; i < matches.size(); ++i) {
     if (matches[i].group - matches[j].group > config.bandwidth) {
-      if (i - j >= 4) {
+      if (auto len = i - j; len >= 4 && len >= config.chain) {
         if (!intervals.empty() && intervals.back().second > j) {  // extend
           intervals.back().second = i;
         } else {  // new
@@ -310,44 +307,56 @@ std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
       }
     }
   }
+  return intervals;
+}
 
+static auto FindChainIndices(ChainConfig config, std::span<Match> matches,
+                             std::uint64_t lhs_idx, std::uint64_t rhs_idx,
+                             std::uint64_t strand)
+    -> std::vector<std::uint64_t> {
+  std::vector<std::uint64_t> indices;
+  if (strand) {                         // same strand
+    indices = LongestMatchSubsequence(  // increasing
+        std::span(matches.begin() + lhs_idx, matches.begin() + rhs_idx),
+        [](std::uint32_t lhs, std::uint32_t rhs) noexcept -> bool {
+          return lhs < rhs;
+        });
+  } else {                              // different strand
+    indices = LongestMatchSubsequence(  // decreasing
+        std::span(matches.begin() + lhs_idx, matches.begin() + rhs_idx),
+        [](std::uint32_t lhs, std::uint32_t rhs) noexcept -> bool {
+          return lhs > rhs;
+        });
+  }
+
+  if (indices.size() < config.chain) {
+    return {};
+  }
+
+  indices.emplace_back(matches.size() - 1 - lhs_idx);  // stop dummy from above
+  return indices;
+};
+
+std::vector<MatchChain> FindChainMatches(std::vector<Match>&& matches,
+                                         ChainConfig config) {
+  RadixSort(std::span<Match>(matches), 64, MatchGroupProjection);
+  matches.emplace_back(-1, -1);  // stop dummy
+
+  auto intervals = FindMatchIntervals(config, matches);
   std::vector<biosoup::Overlap> dst;
+  std::vector<MatchChain> match_chains;
+
   for (const auto& it : intervals) {
-    std::uint64_t j = it.first;
-    std::uint64_t i = it.second;
+    std::uint64_t lhs_idx = it.first;
+    std::uint64_t rhs_idx = it.second;
+    RadixSort(std::span(matches.begin() + lhs_idx, matches.begin() + rhs_idx),
+              64, MatchPositionProjection);
+    std::uint64_t strand = matches[lhs_idx].strand();
+    auto indices = FindChainIndices(config, matches, lhs_idx, rhs_idx, strand);
 
-    if (i - j < config.chain) {
-      continue;
-    }
-
-    RadixSort(std::span(matches.begin() + j, matches.begin() + i), 64,
-              MatchPositionProjection);
-
-    std::uint64_t strand = matches[j].strand();
-
-    std::vector<std::uint64_t> indices;
-    if (strand) {                         // same strand
-      indices = LongestMatchSubsequence(  // increasing
-          std::span(matches.cbegin() + j, matches.cbegin() + i),
-          [](std::uint32_t lhs, std::uint32_t rhs) noexcept -> bool {
-            return lhs < rhs;
-          });
-    } else {                              // different strand
-      indices = LongestMatchSubsequence(  // decreasing
-          std::span(matches.cbegin() + j, matches.cbegin() + i),
-          [](std::uint32_t lhs, std::uint32_t rhs) noexcept -> bool {
-            return lhs > rhs;
-          });
-    }
-
-    if (indices.size() < config.chain) {
-      continue;
-    }
-
-    indices.emplace_back(matches.size() - 1 - j);  // stop dummy from above
     for (std::uint64_t k = 1, l = 0; k < indices.size(); ++k) {
-      if (matches[j + indices[k]].lhs_position() -
-              matches[j + indices[k - 1]].lhs_position() >
+      if (matches[lhs_idx + indices[k]].lhs_position() -
+              matches[lhs_idx + indices[k - 1]].lhs_position() >
           config.gap) {
         if (k - l < config.chain) {
           l = k;
@@ -362,14 +371,14 @@ std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
         std::uint32_t rhs_end = 0;
 
         for (std::uint64_t m = l; m < k; ++m) {
-          std::uint32_t lhs_pos = matches[j + indices[m]].lhs_position();
+          std::uint32_t lhs_pos = matches[lhs_idx + indices[m]].lhs_position();
           if (lhs_pos > lhs_end) {
             lhs_matches += lhs_end - lhs_begin;
             lhs_begin = lhs_pos;
           }
           lhs_end = lhs_pos + config.kmer_length;
 
-          std::uint32_t rhs_pos = matches[j + indices[m]].rhs_position();
+          std::uint32_t rhs_pos = matches[lhs_idx + indices[m]].rhs_position();
           rhs_pos = strand ? rhs_pos
                            : (1U << 31) - (rhs_pos + config.kmer_length - 1);
           if (rhs_pos > rhs_end) {
@@ -385,21 +394,46 @@ std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
           continue;
         }
 
-        dst.emplace_back(
-            lhs_id, matches[j + indices[l]].lhs_position(),
-            config.kmer_length + matches[j + indices[k - 1]].lhs_position(),
-            matches[j].rhs_id(),
-            strand ? matches[j + indices[l]].rhs_position()
-                   : matches[j + indices[k - 1]].rhs_position(),
-            config.kmer_length +
-                (strand ? matches[j + indices[k - 1]].rhs_position()
-                        : matches[j + indices[l]].rhs_position()),
-            std::min(lhs_matches, rhs_matches), strand);
+        auto local_matches = std::vector<Match>();
+        for (auto i = l; i < k; ++i) {
+          local_matches.push_back(matches[lhs_idx + indices[i]]);
+        }
+
+        match_chains.push_back(MatchChain{
+            .matches = std::move(local_matches),
+            .lhs_matches = lhs_matches,
+            .rhs_matches = rhs_matches,
+        });
 
         l = k;
       }
     }
   }
+
+  return match_chains;
+}
+
+std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
+                                    std::vector<Match>&& matches,
+                                    ChainConfig config) {
+  std::vector<biosoup::Overlap> dst;
+  for (const auto& jt : FindChainMatches(std::move(matches), config)) {
+    if (jt.matches.empty()) {
+      continue;
+    }
+
+    const auto strand = jt.matches.front().strand();
+    dst.emplace_back(
+        lhs_id, jt.matches.front().lhs_position(),
+        config.kmer_length + jt.matches.back().lhs_position(),
+        jt.matches.front().rhs_id(),
+        strand ? jt.matches.front().rhs_position()
+               : jt.matches.back().rhs_position(),
+        config.kmer_length + (strand ? jt.matches.back().rhs_position()
+                                     : jt.matches.front().rhs_position()),
+        std::min(jt.lhs_matches, jt.rhs_matches), strand);
+  }
+
   return dst;
 }
 
@@ -492,6 +526,16 @@ std::vector<Match> MatchToIndex(
   }
 
   return matches;
+}
+
+std::vector<MatchChain> ChainOnIndex(
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::span<const Index> indices, MapToIndexConfig map_config,
+    MinimizeConfig minimize_config, ChainConfig chain_config,
+    std::vector<std::uint32_t>* filtered) {
+  return FindChainMatches(MatchToIndex(sequence, indices, map_config,
+                                       minimize_config, chain_config, filtered),
+                          chain_config);
 }
 
 std::vector<biosoup::Overlap> MapToIndex(

@@ -19,13 +19,15 @@ namespace ram {
 // Projects a type T into an integral type which can be used in a radix sort.
 template <class T, class P>
 concept RadixProjection = requires(const T& t, const P& p) {
-  { p(t) } noexcept -> std::same_as<std::uint64_t>;
+  { p(t) }
+  noexcept->std::same_as<std::uint64_t>;
 };
 
 // Performns an in-place radix sort.
 template <class T, class Proj>
-  requires(RadixProjection<T, Proj>)
-inline void RadixSort(std::span<T> values, std::uint8_t max_bits, Proj proj) {
+requires(RadixProjection<T, Proj>) inline void RadixSort(std::span<T> values,
+                                                         std::uint8_t max_bits,
+                                                         Proj proj) {
   if (values.empty()) {
     return;
   }
@@ -66,7 +68,8 @@ inline void RadixSort(std::span<T> values, std::uint8_t max_bits, Proj proj) {
 // LongestMatchSubsequence function.
 template <class T>
 concept BinaryMatchComparator = requires(const T& t, std::uint32_t arg) {
-  { t(arg, arg) } noexcept -> std::same_as<bool>;
+  { t(arg, arg) }
+  noexcept->std::same_as<bool>;
 };
 
 // Expects the input matches to be sorted by the lhs position.
@@ -120,7 +123,6 @@ std::vector<Index> ConstructIndices(
 std::uint32_t CalculateKmerThreshold(std::vector<Index> indices,
                                      double frequency);
 
-
 // Find matches between a pair of sequences.
 // Minhash argument from configuration will only be applied on the lhs sequence.
 std::vector<Match> MatchPairs(const std::unique_ptr<biosoup::NucleicAcid>& lhs,
@@ -140,10 +142,19 @@ std::vector<Match> MatchToIndex(
     MinimizeConfig minimize_config, ChainConfig chain_config,
     std::vector<std::uint32_t>* filtered);
 
+std::vector<MatchChain> FindChainMatches(std::vector<Match>&& matches,
+                                         ChainConfig config);
+
 // Chain matches into overlaps.
 std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
                                     std::vector<Match>&& matches,
                                     ChainConfig config);
+
+std::vector<MatchChain> ChainOnIndex(
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::span<const Index> indices, MapToIndexConfig map_config,
+    MinimizeConfig minimize_config, ChainConfig chain_config,
+    std::vector<std::uint32_t>* filtered);
 
 std::vector<biosoup::Overlap> MapToIndex(
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,

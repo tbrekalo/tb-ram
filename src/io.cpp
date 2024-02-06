@@ -10,8 +10,6 @@
 
 std::atomic<std::uint32_t> biosoup::NucleicAcid::num_objects{0};
 
-static constexpr auto kChunkSize = 1U << 26U;  // 64 MiB
-
 static constexpr auto kFastaSuffxies =
     std::array<char const*, 4>{".fasta", "fasta.gz", ".fa", ".fa.gz"};
 
@@ -54,14 +52,14 @@ std::unique_ptr<bioparser::Parser<biosoup::NucleicAcid>> CreateParser(
 void PrintOverlapBatch(
     std::ostream& ostrm,
     std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
-    std::span<const std::unique_ptr<biosoup::NucleicAcid>> sequences,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> queries,
     std::span<const std::vector<biosoup::Overlap>> overlaps) {
   std::uint64_t rhs_offset = targets.front()->id;
-  std::uint64_t lhs_offset = sequences.front()->id;
+  std::uint64_t lhs_offset = queries.front()->id;
   for (const auto& it : overlaps) {
     for (const auto& jt : it) {
-      ostrm << sequences[jt.lhs_id - lhs_offset]->name << '\t'
-            << sequences[jt.lhs_id - lhs_offset]->inflated_len << '\t'
+      ostrm << queries[jt.lhs_id - lhs_offset]->name << '\t'
+            << queries[jt.lhs_id - lhs_offset]->inflated_len << '\t'
             << jt.lhs_begin << '\t' << jt.lhs_end << '\t'
             << (jt.strand ? '+' : '-') << "\t"
             << targets[jt.rhs_id - rhs_offset]->name << '\t'
@@ -78,14 +76,14 @@ void PrintOverlapBatch(
 void PrintMatchBatch(
     std::ostream& ostrm,
     std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
-    std::span<const std::unique_ptr<biosoup::NucleicAcid>> sequences,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> queries,
     std::span<const std::vector<Match>> matches) {
   std::uint64_t rhs_offset = targets.front()->id;
   for (auto lhs_idx = 0uz; lhs_idx < matches.size(); ++lhs_idx) {
     for (const auto& match : matches[lhs_idx]) {
-      ostrm << sequences[lhs_idx]->name << '\t'
-            << sequences[lhs_idx]->inflated_len << '\t' << match.lhs_position()
-            << '\t' << (match.strand() ? '+' : '-') << '\t'
+      ostrm << queries[lhs_idx]->name << '\t' << queries[lhs_idx]->inflated_len
+            << '\t' << match.lhs_position() << '\t'
+            << (match.strand() ? '+' : '-') << '\t'
             << targets[match.rhs_id() - rhs_offset]->name << '\t'
             << targets[match.rhs_id() - rhs_offset]->inflated_len << '\t'
             << match.rhs_position() << '\n';
@@ -93,6 +91,27 @@ void PrintMatchBatch(
   }
 
   std::flush(ostrm);
+}
+
+void PrintMatchChainBatch(
+    std::ostream& ostrm,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> queries,
+    std::span<const std::vector<MatchChain>> match_chains) {
+  std::uint64_t rhs_offset = targets.front()->id;
+  for (auto lhs_idx = 0uz; lhs_idx < match_chains.size(); ++lhs_idx) {
+    for (const auto& match_chain : match_chains[lhs_idx]) {
+      for (const auto& match : match_chain.matches) {
+        ostrm << queries[lhs_idx]->name << '\t'
+              << queries[lhs_idx]->inflated_len << '\t' << match.lhs_position()
+              << '\t' << '\t' << (match.strand() ? '+' : '-') << '\t'
+              << targets[match.rhs_id() - rhs_offset]->name << '\t'
+              << targets[match.rhs_id() - rhs_offset]->inflated_len << '\t'
+              << match.rhs_position() << '\t' << match_chain.lhs_matches << '\t'
+              << match_chain.rhs_matches << '\n';
+      }
+    }
+  }
 }
 
 }  // namespace ram

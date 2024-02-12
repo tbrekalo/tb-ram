@@ -1,0 +1,31 @@
+[project]
+name = "tb-ram"
+version = "0.1"
+requires-python = ">=3.11"
+dependencies = [
+  "jupyterlab>=4.0",
+  "matplotlib>=3.8",
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "polars>=0.20",
+  "pyarrow>=15.0",
+  "scikit-learn>=1.4",
+  "seaborn>=0.13",
+]
+
+[project.optional-dependencies]
+dev = [
+  "black",
+  "cmake-language-server",
+  "cmakelint",
+  "conan",
+  "ipython",
+  "isort",
+  "litecli",
+  "pyre",
+  "pyre-check",
+  "pyright",
+  "ruff",
+  "ruff-lsp",
+  "watchman",
+]

@@ -95,6 +95,32 @@ class Index {
   std::unordered_map<std::uint64_t, std::uint64_t, Hash, KeyEqual> locator;
 };
 
+struct MatchChain {
+  std::vector<Match> matches;
+  std::uint32_t lhs_matches;
+  std::uint32_t rhs_matches;
+};
+
+struct OverlapAI {
+  std::uint32_t lhs_id;
+  std::uint32_t lhs_begin;
+  std::uint32_t lhs_end;
+  std::uint32_t lhs_matches;
+
+  bool strand;  // Watcon-Crick strand
+
+  std::uint32_t rhs_id;
+  std::uint32_t rhs_begin;
+  std::uint32_t rhs_end;
+  std::uint32_t rhs_matches;
+
+  double diff_mean;
+  std::uint32_t q75;
+  std::uint32_t q90;
+  std::uint32_t q95;
+  std::uint32_t q98;
+};
+
 }  // namespace ram
 
 #endif  // RAM_TYPES_HPP_

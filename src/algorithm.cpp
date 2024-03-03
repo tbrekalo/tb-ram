@@ -421,18 +421,18 @@ std::vector<OverlapAI> ChainAI(std::uint32_t lhs_id,
   std::vector<std::uint32_t> diffs;
   for (const auto& [chain_matches, lhs_matches, rhs_matches] :
        FindChainMatches(std::move(matches), config)) {
-    if (matches.empty()) {
+    if (chain_matches.empty()) {
       continue;
     }
 
     diffs.resize(chain_matches.size() - 1);
-    for (auto i = 1uz; i < chain_matches.size(); ++i) {
-      diffs.push_back(chain_matches[i].lhs_position() -
-                      chain_matches[i - 1].lhs_position());
+    for (auto i = 0uz; i + 1uz < chain_matches.size(); ++i) {
+      diffs[i] = chain_matches[i + 1uz].lhs_position() -
+                 chain_matches[i].lhs_position();
     }
     std::sort(diffs.begin(), diffs.end());
 
-    const auto strand = matches.front().strand();
+    const auto strand = chain_matches.front().strand();
     dst.push_back(OverlapAI{
         .lhs_id = lhs_id,
         .lhs_begin = chain_matches.front().lhs_position(),

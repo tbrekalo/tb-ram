@@ -19,15 +19,13 @@ namespace ram {
 // Projects a type T into an integral type which can be used in a radix sort.
 template <class T, class P>
 concept RadixProjection = requires(const T& t, const P& p) {
-  { p(t) }
-  noexcept->std::same_as<std::uint64_t>;
+  { p(t) } noexcept -> std::same_as<std::uint64_t>;
 };
 
 // Performns an in-place radix sort.
 template <class T, class Proj>
-requires(RadixProjection<T, Proj>) inline void RadixSort(std::span<T> values,
-                                                         std::uint8_t max_bits,
-                                                         Proj proj) {
+  requires(RadixProjection<T, Proj>)
+inline void RadixSort(std::span<T> values, std::uint8_t max_bits, Proj proj) {
   if (values.empty()) {
     return;
   }
@@ -68,8 +66,7 @@ requires(RadixProjection<T, Proj>) inline void RadixSort(std::span<T> values,
 // LongestMatchSubsequence function.
 template <class T>
 concept BinaryMatchComparator = requires(const T& t, std::uint32_t arg) {
-  { t(arg, arg) }
-  noexcept->std::same_as<bool>;
+  { t(arg, arg) } noexcept -> std::same_as<bool>;
 };
 
 // Expects the input matches to be sorted by the lhs position.
@@ -146,9 +143,14 @@ std::vector<MatchChain> FindChainMatches(std::vector<Match>&& matches,
                                          ChainConfig config);
 
 // Chain matches into overlaps.
-std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
+std::vector<biosoup::Overlap> Chain(std::uint32_t lhs_id,
                                     std::vector<Match>&& matches,
                                     ChainConfig config);
+
+// Chain matches into overlaps for ai worlkoad.
+std::vector<OverlapAI> ChainAI(std::uint32_t lhs_id,
+                               std::vector<Match>&& matches,
+                               ChainConfig config);
 
 std::vector<MatchChain> ChainOnIndex(
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
@@ -157,6 +159,12 @@ std::vector<MatchChain> ChainOnIndex(
     std::vector<std::uint32_t>* filtered);
 
 std::vector<biosoup::Overlap> MapToIndex(
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::span<const Index> indices, MapToIndexConfig map_config,
+    MinimizeConfig minimize_config, ChainConfig chain_config,
+    std::vector<std::uint32_t>* filtered);
+
+std::vector<OverlapAI> MapToIndexAI(
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
     std::span<const Index> indices, MapToIndexConfig map_config,
     MinimizeConfig minimize_config, ChainConfig chain_config,

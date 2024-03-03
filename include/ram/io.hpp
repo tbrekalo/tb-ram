@@ -26,6 +26,12 @@ void PrintOverlapBatch(
     std::span<const std::unique_ptr<biosoup::NucleicAcid>> queries,
     std::span<const std::vector<biosoup::Overlap>> overlaps);
 
+void PrintOverlapAIBatch(
+    std::ostream& ostrm,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> queries,
+    std::span<const std::vector<OverlapAI>> overlaps);
+
 void PrintMatchBatch(
     std::ostream& ostrm,
     std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,

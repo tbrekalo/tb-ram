@@ -1,6 +1,7 @@
 #include "ram/algorithm.hpp"
 
 #include <deque>
+#include <numeric>
 
 #include "biosoup/nucleic_acid.hpp"
 #include "tbb/tbb.h"
@@ -413,7 +414,59 @@ std::vector<MatchChain> FindChainMatches(std::vector<Match>&& matches,
   return match_chains;
 }
 
-std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
+std::vector<OverlapAI> ChainAI(std::uint32_t lhs_id,
+                               std::vector<Match>&& matches,
+                               ChainConfig config) {
+  std::vector<OverlapAI> dst;
+  std::vector<std::uint32_t> diffs;
+  for (const auto& [chain_matches, lhs_matches, rhs_matches] :
+       FindChainMatches(std::move(matches), config)) {
+    if (matches.empty()) {
+      continue;
+    }
+
+    diffs.resize(chain_matches.size() - 1);
+    for (auto i = 1uz; i < chain_matches.size(); ++i) {
+      diffs.push_back(chain_matches[i].lhs_position() -
+                      chain_matches[i - 1].lhs_position());
+    }
+    std::sort(diffs.begin(), diffs.end());
+
+    const auto strand = matches.front().strand();
+    dst.push_back(OverlapAI{
+        .lhs_id = lhs_id,
+        .lhs_begin = chain_matches.front().lhs_position(),
+        .lhs_end = config.kmer_length + chain_matches.back().lhs_position(),
+        .lhs_matches = lhs_matches,
+
+        .strand = strand,
+
+        .rhs_id = chain_matches.front().rhs_id(),
+        .rhs_begin = strand ? chain_matches.front().rhs_position()
+                            : chain_matches.back().rhs_position(),
+        .rhs_end = config.kmer_length +
+                   (strand ? chain_matches.back().rhs_position()
+                           : chain_matches.front().rhs_position()),
+        .rhs_matches = rhs_matches,
+
+        .diff_mean =
+            [&diffs] {
+              return std::accumulate(diffs.begin(), diffs.end(), 0.,
+                                     std::plus<double>{}) /
+                     diffs.size();
+            }(),
+
+        .q75 = diffs[diffs.size() * 0.75],
+        .q90 = diffs[diffs.size() * 0.90],
+        .q95 = diffs[diffs.size() * 0.95],
+        .q98 = diffs[diffs.size() * 0.98],
+    });
+  }
+
+  return dst;
+}
+
+std::vector<biosoup::Overlap> Chain(std::uint32_t lhs_id,
                                     std::vector<Match>&& matches,
                                     ChainConfig config) {
   std::vector<biosoup::Overlap> dst;
@@ -547,6 +600,17 @@ std::vector<biosoup::Overlap> MapToIndex(
                MatchToIndex(sequence, indices, map_config, minimize_config,
                             chain_config, filtered),
                chain_config);
+}
+
+std::vector<OverlapAI> MapToIndexAI(
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::span<const Index> indices, MapToIndexConfig map_config,
+    MinimizeConfig minimize_config, ChainConfig chain_config,
+    std::vector<std::uint32_t>* filtered) {
+  return ChainAI(sequence->id,
+                 MatchToIndex(sequence, indices, map_config, minimize_config,
+                              chain_config, filtered),
+                 chain_config);
 }
 
 }  // namespace ram

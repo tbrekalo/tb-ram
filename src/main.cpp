@@ -17,6 +17,7 @@ enum class Mode {
   kChain,
   kMatch,
   kOverlap,
+  kOverlapAI,
 };
 
 std::ostream& operator<<(std::ostream& ostrm, Mode mode) {
@@ -27,6 +28,8 @@ std::ostream& operator<<(std::ostream& ostrm, Mode mode) {
       return ostrm << "match";
     case Mode::kOverlap:
       return ostrm << "overlap";
+    case Mode::kOverlapAI:
+      return ostrm << "overlap-ai";
   }
 }
 
@@ -47,6 +50,11 @@ std::istream& operator>>(std::istream& istrm, Mode& mode) {
 
   if (repr == "overlap"sv) {
     mode = Mode::kOverlap;
+    return istrm;
+  }
+
+  if (repr == "overlap-ai") {
+    mode = Mode::kOverlapAI;
     return istrm;
   }
 
@@ -72,9 +80,12 @@ static const auto ExecuteBatchImpl = [](BatchContext ctx) -> void {
     } else if constexpr (mode == Mode::kMatch) {
       return std::tuple{&ram::MatchToIndex, std::vector<ram::Match>{},
                         &ram::PrintMatchBatch};
-    } else {
+    } else if constexpr (mode == Mode::kOverlap) {
       return std::tuple{&ram::MapToIndex, std::vector<biosoup::Overlap>{},
                         &ram::PrintOverlapBatch};
+    } else {
+      return std::tuple{&ram::MapToIndexAI, std::vector<ram::OverlapAI>{},
+                        &ram::PrintOverlapAIBatch};
     }
   }();
 
@@ -98,6 +109,9 @@ static const auto ExecuteBatch = [](Mode mode, BatchContext ctx) -> void {
       break;
     case Mode::kOverlap:
       ExecuteBatchImpl<Mode::kOverlap>(ctx);
+      break;
+    case Mode::kOverlapAI:
+      ExecuteBatchImpl<Mode::kOverlapAI>(ctx);
       break;
   }
 };

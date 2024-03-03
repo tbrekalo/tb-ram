@@ -82,6 +82,43 @@ void PrintOverlapBatch(
   std::flush(ostrm);
 }
 
+void PrintOverlapAIBatch(
+    std::ostream& ostrm,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> queries,
+    std::span<const std::vector<OverlapAI>> overlaps) {
+  std::uint64_t rhs_offset = targets.front()->id;
+  std::uint64_t lhs_offset = queries.front()->id;
+  for (const auto& it : overlaps) {
+    for (const auto& jt : it) {
+      /* clang-format off */
+      ostrm << queries[jt.lhs_id - lhs_offset]->name
+            << '\t' << queries[jt.lhs_id - lhs_offset]->inflated_len
+            << '\t' << jt.lhs_begin
+            << '\t' << jt.lhs_end
+            << '\t' << jt.lhs_matches
+
+            << '\t' << (jt.strand ? '+' : '-')
+
+            << "\t" << targets[jt.rhs_id - rhs_offset]->name
+            << '\t' << targets[jt.rhs_id - rhs_offset]->inflated_len
+            << '\t' << jt.rhs_begin
+            << '\t' << jt.rhs_end
+            << '\t' << jt.rhs_matches
+
+            << '\t' << jt.diff_mean
+            << '\t' << jt.q75
+            << '\t' << jt.q90
+            << '\t' << jt.q95
+            << '\t' << jt.q98
+            << '\n';
+      /* clang-format on */
+    }
+  }
+
+  std::flush(ostrm);
+}
+
 void PrintMatchBatch(
     std::ostream& ostrm,
     std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,

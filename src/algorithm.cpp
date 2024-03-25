@@ -4,7 +4,6 @@
 #include <numeric>
 
 #include "biosoup/nucleic_acid.hpp"
-#include "tbb/tbb.h"
 
 namespace ram {
 
@@ -89,7 +88,8 @@ std::vector<Kmer> Minimize(
 
 std::vector<Index> ConstructIndices(
     std::span<std::unique_ptr<biosoup::NucleicAcid>> sequences,
-    MinimizeConfig minimize_config) {
+    MinimizeConfig minimize_config,
+    std::shared_ptr<thread_pool::ThreadPool> thread_pool) {
   std::vector<Index> indices(
       1uz << std::min(14uz, 2uz * minimize_config.kmer_length));
   if (sequences.empty()) {
@@ -113,12 +113,20 @@ std::vector<Index> ConstructIndices(
       }(idx);
 
       buffer.resize(idx - batch_first_idx);
-      tbb::parallel_for(batch_first_idx, idx,
-                        [&sequences, &minimize_config, &buffer,
-                         batch_first_idx](std::size_t minimize_idx) -> void {
-                          buffer[minimize_idx - batch_first_idx] = Minimize(
-                              sequences[minimize_idx], minimize_config);
-                        });
+      std::vector<std::future<void>> futures;
+      for (auto i = batch_first_idx; i < idx; ++i) {
+        futures.push_back(thread_pool->Submit(
+            [&sequences, &minimize_config, &buffer,
+             batch_first_idx](std::size_t minimize_idx) -> void {
+              buffer[minimize_idx - batch_first_idx] =
+                  Minimize(sequences[minimize_idx], minimize_config);
+            },
+            i));
+      }
+
+      for (auto& future : futures) {
+        future.wait();
+      }
 
       for (auto& kmers : buffer) {
         for (auto kmer : kmers) {
@@ -135,42 +143,44 @@ std::vector<Index> ConstructIndices(
   }
 
   {
-    std::vector<std::pair<std::size_t, std::size_t>> origins_keys(
-        minimizers.size());
-    tbb::parallel_for(
-        0uz, minimizers.size(),
-        [&](std::uint32_t i) -> std::pair<std::size_t, std::size_t> {
-          if (minimizers[i].empty()) {
-            return std::make_pair(0, 0);
-          }
-
-          RadixSort<Kmer>(std::span<Kmer>(minimizers[i]),
-                          minimize_config.kmer_length * 2, KmerValueProjection);
-
-          minimizers[i].emplace_back(-1, -1);  // stop dummy
-
-          std::size_t num_origins = 0;
-          std::size_t num_keys = 0;
-
-          for (std::uint64_t j = 1, c = 1; j < minimizers[i].size(); ++j, ++c) {
-            if (minimizers[i][j - 1].value != minimizers[i][j].value) {
-              if (c > 1) {
-                num_origins += c;
-              }
-              ++num_keys;
-              c = 0;
+    std::vector<std::future<std::pair<std::size_t, std::size_t>>> futures;
+    for (std::uint32_t i = 0; i < minimizers.size(); ++i) {
+      futures.emplace_back(thread_pool->Submit(
+          [&](std::uint32_t i) -> std::pair<std::size_t, std::size_t> {
+            if (minimizers[i].empty()) {
+              return std::make_pair(0, 0);
             }
-          }
 
-          return std::make_pair(num_origins, num_keys);
-        });
+            RadixSort<Kmer>(std::span<Kmer>(minimizers[i]),
+                            minimize_config.kmer_length * 2,
+                            KmerValueProjection);
 
+            minimizers[i].emplace_back(-1, -1);  // stop dummy
+
+            std::size_t num_origins = 0;
+            std::size_t num_keys = 0;
+
+            for (std::uint64_t j = 1, c = 1; j < minimizers[i].size();
+                 ++j, ++c) {  // NOLINT
+              if (minimizers[i][j - 1].value != minimizers[i][j].value) {
+                if (c > 1) {
+                  num_origins += c;
+                }
+                ++num_keys;
+                c = 0;
+              }
+            }
+
+            return std::make_pair(num_origins, num_keys);
+          },
+          i));
+    }
     for (std::uint32_t i = 0; i < minimizers.size(); ++i) {
       if (minimizers[i].empty()) {
         continue;
       }
 
-      auto [num_origins, num_keys] = origins_keys[i];
+      auto [num_origins, num_keys] = futures[i].get();
       indices[i].origins.reserve(num_origins);
       indices[i].locator.reserve(num_keys);
 

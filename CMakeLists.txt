@@ -31,8 +31,8 @@ option(ram_addres_sanitize
        ${RAM_MAIN_PROJECT})
 option(ram_compile_diagnostics "Build ram with compile time diagnostics" OFF)
 
-find_package(TBB REQUIRED)
 find_package(biosoup 0.10.0 QUIET)
+find_package(thread_pool 4.0.0 QUIET)
 
 if(NOT biosoup_FOUND)
   if(ram_install)
@@ -48,6 +48,24 @@ if(NOT biosoup_FOUND)
   if(NOT biosoup_POPULATED)
     FetchContent_Populate(biosoup)
     add_subdirectory(${biosoup_SOURCE_DIR} ${biosoup_BINARY_DIR}
+                     EXCLUDE_FROM_ALL)
+  endif()
+endif()
+
+if(NOT thread_pool_FOUND)
+  if(ram_install)
+    message(FATAL_ERROR "Missing package thread_pool!")
+  endif()
+
+  FetchContent_Declare(
+    thread_pool
+    GIT_REPOSITORY https://github.com/rvaser/thread_pool
+    GIT_TAG 4.0.0)
+
+  FetchContent_GetProperties(thread_pool)
+  if(NOT thread_pool_POPULATED)
+    FetchContent_Populate(thread_pool)
+    add_subdirectory(${thread_pool_SOURCE_DIR} ${thread_pool_BINARY_DIR}
                      EXCLUDE_FROM_ALL)
   endif()
 endif()
@@ -125,7 +143,8 @@ target_include_directories(
   ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                          $<INSTALL_INTERFACE:include>)
 
-target_link_libraries(ram bioparser::bioparser biosoup::biosoup TBB::tbb)
+target_link_libraries(ram bioparser::bioparser biosoup::biosoup
+                      thread_pool::thread_pool)
 
 target_compile_options(
   ram

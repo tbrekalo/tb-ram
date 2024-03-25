@@ -4,6 +4,7 @@
 #include "biosoup/nucleic_acid.hpp"
 #include "gtest/gtest.h"
 #include "ram/algorithm.hpp"
+#include "thread_pool/thread_pool.hpp"
 
 std::atomic<std::uint32_t> biosoup::NucleicAcid::num_objects{0};
 
@@ -12,6 +13,7 @@ namespace ram::test {
 class RamMinimizerEngineTest : public ::testing::Test {
  public:
   void SetUp() override {
+    thread_pool = std::make_shared<thread_pool::ThreadPool>(1);
     biosoup::NucleicAcid::num_objects = 0;
     auto p =
         bioparser::Parser<biosoup::NucleicAcid>::Create<bioparser::FastaParser>(
@@ -19,12 +21,12 @@ class RamMinimizerEngineTest : public ::testing::Test {
     s = p->Parse(-1);
     EXPECT_EQ(2, s.size());
   }
-
+  std::shared_ptr<thread_pool::ThreadPool> thread_pool;
   std::vector<std::unique_ptr<biosoup::NucleicAcid>> s;
 };
 
 TEST_F(RamMinimizerEngineTest, Map) {
-  auto indices = ConstructIndices(s, MinimizeConfig{});
+  auto indices = ConstructIndices(s, MinimizeConfig{}, thread_pool);
   auto occurrence = CalculateKmerThreshold(indices, 0.001);
 
   auto o =
@@ -101,7 +103,7 @@ TEST_F(RamMinimizerEngineTest, Pair) {
 
 TEST_F(RamMinimizerEngineTest, Filter) {
   auto minimize_config = MinimizeConfig{.kmer_length = 9, .window_length = 3};
-  auto indices = ConstructIndices(s, minimize_config);
+  auto indices = ConstructIndices(s, minimize_config, thread_pool);
   auto occurrence_0_001 = CalculateKmerThreshold(indices, 0.001);
   std::vector<std::uint32_t> filtered;
 
@@ -136,7 +138,7 @@ TEST_F(RamMinimizerEngineTest, Filter) {
 }
 
 TEST_F(RamMinimizerEngineTest, Micromize) {
-  auto indices = ConstructIndices(s, MinimizeConfig{});
+  auto indices = ConstructIndices(s, MinimizeConfig{}, thread_pool);
   std::vector<std::uint32_t> filtered;
 
   auto o =

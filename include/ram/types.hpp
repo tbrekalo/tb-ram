@@ -5,6 +5,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "thread_pool/thread_pool.hpp"
+
 namespace ram {
 
 struct MinimizeConfig {
@@ -28,6 +30,7 @@ struct MapToIndexConfig {
 };
 
 struct AlgoConfig {
+  std::shared_ptr<thread_pool::ThreadPool> thread_pool;
   MinimizeConfig minimize;
   ChainConfig chain;
 };

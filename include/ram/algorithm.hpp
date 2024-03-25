@@ -115,7 +115,8 @@ std::vector<Kmer> Minimize(
 
 std::vector<Index> ConstructIndices(
     std::span<std::unique_ptr<biosoup::NucleicAcid>> sequences,
-    MinimizeConfig minimize_config);
+    MinimizeConfig minimize_config,
+    std::shared_ptr<thread_pool::ThreadPool> thread_pool);
 
 std::uint32_t CalculateKmerThreshold(std::vector<Index> indices,
                                      double frequency);

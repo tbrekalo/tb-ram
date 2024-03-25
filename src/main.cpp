@@ -11,7 +11,7 @@
 #include "cxxopts.hpp"
 #include "ram/algorithm.hpp"
 #include "ram/io.hpp"
-#include "tbb/tbb.h"
+#include "thread_pool/thread_pool.hpp"
 
 enum class Mode {
   kChain,
@@ -90,11 +90,22 @@ static const auto ExecuteBatchImpl = [](BatchContext ctx) -> void {
   }();
 
   std::vector<decltype(prototype)> values(ctx.sequences.size());
-  tbb::parallel_for(0uz, ctx.sequences.size(), [&](std::size_t idx) -> void {
-    values[idx] = operation(ctx.sequences[idx], ctx.indices, ctx.map2index_cfg,
-                            ctx.algo_cfg.minimize, ctx.algo_cfg.chain, nullptr);
-    ctx.update_progress();
-  });
+
+  std::vector<std::future<void>> futures;
+  for (auto idx = 0uz; idx < ctx.sequences.size(); ++idx) {
+    futures.push_back(ctx.algo_cfg.thread_pool->Submit(
+        [&](std::size_t jdx) -> void {
+          values[jdx] =
+              operation(ctx.sequences[jdx], ctx.indices, ctx.map2index_cfg,
+                        ctx.algo_cfg.minimize, ctx.algo_cfg.chain, nullptr);
+          ctx.update_progress();
+        },
+        idx));
+  }
+
+  for (auto& future : futures) {
+    future.wait();
+  }
 
   print(std::cout, ctx.targets, ctx.sequences, values);
 };
@@ -204,6 +215,7 @@ int main(int argc, char** argv) {
     auto frequency = parsed_options["frequency-threshold"].as<double>();
 
     auto cfg = ram::AlgoConfig{
+        .thread_pool = std::make_shared<thread_pool::ThreadPool>(num_threads),
         .minimize =
             ram::MinimizeConfig{
                 .kmer_length =
@@ -227,70 +239,67 @@ int main(int argc, char** argv) {
     const auto target_batch_size =
         parsed_options["target-batch-size"].as<std::uint64_t>() *
         (1ULL << 20ULL);
-    auto arena = tbb::task_arena(num_threads);
     biosoup::Timer timer{};
 
     std::ios_base::sync_with_stdio(false);
-    arena.execute([&] {
+    while (true) {
+      timer.Start();
+      std::vector<std::unique_ptr<biosoup::NucleicAcid>> targets;
+      targets = tparser->Parse(target_batch_size);
+      if (targets.empty()) {
+        break;
+      }
+
+      std::cerr << "[ram::] parsed " << targets.size() << " targets "
+                << std::fixed << timer.Stop() << "s" << std::endl;
+
+      timer.Start();
+      auto indices =
+          ram::ConstructIndices(targets, cfg.minimize, cfg.thread_pool);
+      auto map_to_index_cfg = ram::MapToIndexConfig{
+          .avoid_equal = is_ava,
+          .avoid_symmetric = is_ava,
+          .occurrence = ram::CalculateKmerThreshold(indices, frequency),
+      };
+
+      std::cerr << "[ram::] minimized targets " << std::fixed << timer.Stop()
+                << "s" << std::endl;
+
+      std::uint64_t num_targets = biosoup::NucleicAcid::num_objects;
+      biosoup::NucleicAcid::num_objects = 0;
       while (true) {
         timer.Start();
-        std::vector<std::unique_ptr<biosoup::NucleicAcid>> targets;
-        targets = tparser->Parse(target_batch_size);
-        if (targets.empty()) {
+        std::vector<std::unique_ptr<biosoup::NucleicAcid>> sequences;
+        sequences = sparser->Parse(query_batch_size);
+        if (sequences.empty()) {
           break;
         }
 
-        std::cerr << "[ram::] parsed " << targets.size() << " targets "
-                  << std::fixed << timer.Stop() << "s" << std::endl;
+        std::mutex bar_mtx;
+        biosoup::ProgressBar bar{static_cast<std::uint32_t>(sequences.size()),
+                                 16};
+        ExecuteBatch(mode, {cfg, map_to_index_cfg, targets, sequences, indices,
+                            [&timer, &bar, &bar_mtx, n = sequences.size()] {
+                              std::lock_guard lk{bar_mtx};
+                              if (++bar) {
+                                std::cerr << "[ram::] batch progress "
+                                          << 100. * bar.event_counter() / n
+                                          << "% [" << bar << "] " << std::fixed
+                                          << timer.Lap() << "s"
+                                          << "\r";
+                              }
+                            }});
+        std::cerr << std::endl;
+        timer.Stop();
 
-        timer.Start();
-        auto indices = ram::ConstructIndices(targets, cfg.minimize);
-        auto map_to_index_cfg = ram::MapToIndexConfig{
-            .avoid_equal = is_ava,
-            .avoid_symmetric = is_ava,
-            .occurrence = ram::CalculateKmerThreshold(indices, frequency),
-        };
-
-        std::cerr << "[ram::] minimized targets " << std::fixed << timer.Stop()
-                  << "s" << std::endl;
-
-        std::uint64_t num_targets = biosoup::NucleicAcid::num_objects;
-        biosoup::NucleicAcid::num_objects = 0;
-        while (true) {
-          timer.Start();
-          std::vector<std::unique_ptr<biosoup::NucleicAcid>> sequences;
-          sequences = sparser->Parse(query_batch_size);
-          if (sequences.empty()) {
-            break;
-          }
-
-          std::mutex bar_mtx;
-          biosoup::ProgressBar bar{static_cast<std::uint32_t>(sequences.size()),
-                                   16};
-          ExecuteBatch(mode,
-                       {cfg, map_to_index_cfg, targets, sequences, indices,
-                        [&timer, &bar, &bar_mtx, n = sequences.size()] {
-                          std::lock_guard lk{bar_mtx};
-                          if (++bar) {
-                            std::cerr << "[ram::] batch progress "
-                                      << 100. * bar.event_counter() / n << "% ["
-                                      << bar << "] " << std::fixed
-                                      << timer.Lap() << "s"
-                                      << "\r";
-                          }
-                        }});
-          std::cerr << std::endl;
-          timer.Stop();
-
-          if (is_ava && biosoup::NucleicAcid::num_objects >= num_targets) {
-            break;
-          }
+        if (is_ava && biosoup::NucleicAcid::num_objects >= num_targets) {
+          break;
         }
-
-        sparser->Reset();
-        biosoup::NucleicAcid::num_objects = num_targets;
       }
-    });
+
+      sparser->Reset();
+      biosoup::NucleicAcid::num_objects = num_targets;
+    }
 
     std::cerr << "[ram::] " << timer.elapsed_time() << "s" << std::endl;
   } catch (const std::exception& exception) {

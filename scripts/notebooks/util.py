@@ -136,6 +136,45 @@ def create_overlaps_from_chains(df_chains: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def create_annotated_ref_overlaps(
+    df_ref_overlaps: pl.DataFrame,
+    df_origins: pl.DataFrame,
+) -> pl.DataFrame:
+    """Creates a pl.DataFrame with annoated overlaps.
+    
+    Args:
+        df_ref_overlaps: A pl.DataFrame representing reads to ref overlaps.
+        df_origins: A pl.DataFrame with ground truth information
+                    about read reference origins.
+
+    Retruns:
+        A pl.DataFrame with standard PAF columns and aditional origin info.
+    """
+    return df_ref_overlaps.join(
+        df_origins,
+        on="query-name",
+        how="inner",
+    ).with_columns(
+        (
+            pl.max_horizontal(
+                pl.min_horizontal(
+                    pl.col("origin-end"),
+                    pl.col("target-end"),
+                )
+                - pl.max_horizontal(
+                    pl.col("origin-start"),
+                    pl.col("target-start"),
+                ),
+                pl.lit(0),
+            )
+            / pl.max_horizontal(
+                pl.col("origin-end") - pl.col("origin-start"),
+                pl.col("target-end") - pl.col("target-start"),
+            )
+        ).alias("ratio")
+    )
+
+
 def create_annotated_ref_overlaps_from_chains(
     df_chains: pl.DataFrame,
     df_origins: pl.DataFrame,
@@ -149,32 +188,9 @@ def create_annotated_ref_overlaps_from_chains(
     Returns:
         A pl.DataFrame with annotated overlaps.
     """
-    return (
-        create_overlaps_from_chains(df_chains)
-        .join(
-            df_origins,
-            on="query-name",
-            how="inner",
-        )
-        .with_columns(
-            (
-                pl.max_horizontal(
-                    pl.min_horizontal(
-                        pl.col("origin-end"),
-                        pl.col("target-end"),
-                    )
-                    - pl.max_horizontal(
-                        pl.col("origin-start"),
-                        pl.col("target-start"),
-                    ),
-                    pl.lit(0),
-                )
-                / pl.max_horizontal(
-                    pl.col("origin-end") - pl.col("origin-start"),
-                    pl.col("target-end") - pl.col("target-start"),
-                )
-            ).alias("ratio")
-        )
+    return create_annotated_ref_overlaps(
+        df_ref_overlaps=create_overlaps_from_chains(df_chains),
+        df_origins=df_origins,
     )
 
 

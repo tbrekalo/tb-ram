@@ -150,7 +150,6 @@ int main(int argc, char** argv) {
             m.basename(), m.line());
       });
   /* clang-format on */
-
   cxxopts::Options options("ram", "sequence mapping tool");
 
   /* clang-format off */
@@ -215,6 +214,7 @@ int main(int argc, char** argv) {
     }
 
     if (early_quit) {
+      google::ShutdownGoogleLogging();
       return 0;
     }
 
@@ -226,6 +226,7 @@ int main(int argc, char** argv) {
     if (input_paths.size() > 1) {
       sparser = ram::CreateParser(input_paths[1]);
       if (sparser == nullptr) {
+        google::ShutdownGoogleLogging();
         return 1;
       }
       is_ava = input_paths[0] == input_paths[1];
@@ -315,8 +316,10 @@ int main(int argc, char** argv) {
     }
   } catch (const std::exception& exception) {
     std::cerr << exception.what() << std::endl;
+    google::ShutdownGoogleLogging();
     return 1;
   }
 
+  google::ShutdownGoogleLogging();
   return 0;
 }

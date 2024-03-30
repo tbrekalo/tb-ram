@@ -32,7 +32,8 @@ option(ram_addres_sanitize
 option(ram_compile_diagnostics "Build ram with compile time diagnostics" OFF)
 
 find_package(biosoup 0.10.0 QUIET)
-find_package(thread_pool 4.0.0 QUIET)
+find_package(glog 0.7.0 QUIET)
+find_package(thread_pool 5.0.0 QUIET)
 
 if(NOT biosoup_FOUND)
   if(ram_install)
@@ -52,6 +53,23 @@ if(NOT biosoup_FOUND)
   endif()
 endif()
 
+if(NOT glog_FOUND)
+  if(ram_install)
+    message(FATAL_ERROR "Missing package glog!")
+  endif()
+
+  FetchContent_Declare(
+    glog
+    GIT_REPOSITORY https://github.com/google/glog/
+    GIT_TAG v0.7.0)
+
+  FetchContent_GetProperties(glog)
+  if(NOT glog_POPULATED)
+    FetchContent_Populate(glog)
+    add_subdirectory(${glog_SOURCE_DIR} ${glog_BINARY_DIR} EXCLUDE_FROM_ALL)
+  endif()
+endif()
+
 if(NOT thread_pool_FOUND)
   if(ram_install)
     message(FATAL_ERROR "Missing package thread_pool!")
@@ -59,8 +77,8 @@ if(NOT thread_pool_FOUND)
 
   FetchContent_Declare(
     thread_pool
-    GIT_REPOSITORY https://github.com/rvaser/thread_pool
-    GIT_TAG 4.0.0)
+    GIT_REPOSITORY https://github.com/tbrekalo/thread_pool
+    GIT_TAG 5.0.0)
 
   FetchContent_GetProperties(thread_pool)
   if(NOT thread_pool_POPULATED)
@@ -143,7 +161,7 @@ target_include_directories(
   ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                          $<INSTALL_INTERFACE:include>)
 
-target_link_libraries(ram bioparser::bioparser biosoup::biosoup
+target_link_libraries(ram bioparser::bioparser biosoup::biosoup glog::glog
                       thread_pool::thread_pool)
 
 target_compile_options(

@@ -60,7 +60,7 @@ query_name query_length query_match_position strand target_name target_length ta
 
 ## Installation
 
-Running `make install` will install the executable. In order to install the library, both biosoup and thread_pool (see Dependencies) need to be installed beforehand, and option `ram_install` used while configuring the build. Once the library is installed, a package will be copied to your system that can be searched and linked with:
+Running `make install` will install the executable. In order to install the library, both biosoup, glog and thread_pool (see Dependencies) need to be installed beforehand, and option `ram_install` used while configuring the build. Once the library is installed, a package will be copied to your system that can be searched and linked with:
 
 ```cmake
 find_package(ram)
@@ -86,6 +86,7 @@ target_link_libraries(<target> ram::ram)
 
 - gcc 12.0+ | clang 17.0+
 - cmake 3.20+
+- glog
 - pthread
 - (ram_exe)(ram_test) zlib 1.2.8+
 

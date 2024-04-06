@@ -161,7 +161,7 @@ std::vector<Index> ConstructIndices(
             std::size_t num_keys = 0;
 
             for (std::uint64_t j = 1, c = 1; j < minimizers[i].size();
-                 ++j, ++c) {  // NOLINT
+                 ++j, ++c) {
               if (minimizers[i][j - 1].value != minimizers[i][j].value) {
                 if (c > 1) {
                   num_origins += c;
@@ -321,10 +321,9 @@ static auto FindMatchIntervals(ChainConfig config,
   return intervals;
 }
 
-static auto FindChainIndices(ChainConfig config, std::span<Match> matches,
-                             std::uint64_t lhs_idx, std::uint64_t rhs_idx,
-                             std::uint64_t strand)
-    -> std::vector<std::uint64_t> {
+static auto FindChainIndices(
+    ChainConfig config, std::span<Match> matches, std::uint64_t lhs_idx,
+    std::uint64_t rhs_idx, std::uint64_t strand) -> std::vector<std::uint64_t> {
   std::vector<std::uint64_t> indices;
   if (strand) {                         // same strand
     indices = LongestMatchSubsequence(  // increasing

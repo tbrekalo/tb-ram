@@ -31,12 +31,12 @@ std::unique_ptr<bioparser::Parser<biosoup::NucleicAcid>> CreateParser(
   if (std::any_of(kFastaSuffxies.cbegin(), kFastaSuffxies.cend(),
                   std::bind(IsSuffixFor, _1, path.c_str()))) {
     return bioparser::Parser<biosoup::NucleicAcid>::Create<
-        bioparser::FastaParser>(path);  // NOLINT
+        bioparser::FastaParser>(path);
   }
   if (std::any_of(kFastqSuffixes.cbegin(), kFastqSuffixes.cend(),
                   std::bind(IsSuffixFor, _1, path.c_str()))) {
     return bioparser::Parser<biosoup::NucleicAcid>::Create<
-        bioparser::FastqParser>(path);  // NOLINT
+        bioparser::FastqParser>(path);
   }
 
   throw std::runtime_error([path] {

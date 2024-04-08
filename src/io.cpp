@@ -2,6 +2,7 @@
 
 #include <exception>
 #include <sstream>
+#include <format>
 
 #include "bioparser/fasta_parser.hpp"
 #include "bioparser/fastq_parser.hpp"
@@ -59,22 +60,24 @@ void PrintOverlapBatch(
   for (const auto& it : overlaps) {
     for (const auto& jt : it) {
       /* clang-format off */
-      ostrm << queries[jt.lhs_id - lhs_offset]->name
-            << '\t' << queries[jt.lhs_id - lhs_offset]->inflated_len
-            << '\t' << jt.lhs_begin
-            << '\t' << jt.lhs_end
+      ostrm << std::format(
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+        queries[jt.lhs_id - lhs_offset]->name,
+        queries[jt.lhs_id - lhs_offset]->inflated_len,
+        jt.lhs_begin,
+        jt.lhs_end,
 
-            << '\t' << (jt.strand ? '+' : '-')
+        (jt.strand ? '+' : '-'),
 
-            << "\t" << targets[jt.rhs_id - rhs_offset]->name
-            << '\t' << targets[jt.rhs_id - rhs_offset]->inflated_len
-            << '\t' << jt.rhs_begin
-            << '\t' << jt.rhs_end
+        targets[jt.rhs_id - rhs_offset]->name,
+        targets[jt.rhs_id - rhs_offset]->inflated_len,
+        jt.rhs_begin,
+        jt.rhs_end,
 
-            << '\t' << jt.score
-            << '\t' << std::max(jt.lhs_end - jt.lhs_begin, jt.rhs_end - jt.rhs_begin)
-            << '\t' << 255
-            << '\n';
+        jt.score,
+        std::max(jt.lhs_end - jt.lhs_begin, jt.rhs_end - jt.rhs_begin),
+        255
+      );
       /* clang-format on */
     }
   }
@@ -92,26 +95,28 @@ void PrintOverlapAIBatch(
   for (const auto& it : overlaps) {
     for (const auto& jt : it) {
       /* clang-format off */
-      ostrm << queries[jt.lhs_id - lhs_offset]->name
-            << '\t' << queries[jt.lhs_id - lhs_offset]->inflated_len
-            << '\t' << jt.lhs_begin
-            << '\t' << jt.lhs_end
-            << '\t' << jt.lhs_matches
+      ostrm << std::format(
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+        queries[jt.lhs_id - lhs_offset]->name,
+        queries[jt.lhs_id - lhs_offset]->inflated_len,
+        jt.lhs_begin,
+        jt.lhs_end,
+        jt.lhs_matches,
 
-            << '\t' << (jt.strand ? '+' : '-')
+        (jt.strand ? '+' : '-'),
 
-            << "\t" << targets[jt.rhs_id - rhs_offset]->name
-            << '\t' << targets[jt.rhs_id - rhs_offset]->inflated_len
-            << '\t' << jt.rhs_begin
-            << '\t' << jt.rhs_end
-            << '\t' << jt.rhs_matches
+        targets[jt.rhs_id - rhs_offset]->name,
+        targets[jt.rhs_id - rhs_offset]->inflated_len,
+        jt.rhs_begin,
+        jt.rhs_end,
+        jt.rhs_matches,
 
-            << '\t' << jt.diff_mean
-            << '\t' << jt.q75
-            << '\t' << jt.q90
-            << '\t' << jt.q95
-            << '\t' << jt.q98
-            << '\n';
+        jt.diff_mean,
+        jt.q75,
+        jt.q90,
+        jt.q95,
+        jt.q98
+      );
       /* clang-format on */
     }
   }
@@ -128,16 +133,18 @@ void PrintMatchBatch(
   for (auto lhs_idx = 0uz; lhs_idx < matches.size(); ++lhs_idx) {
     /* clang-format off */
     for (const auto& match : matches[lhs_idx]) {
-      ostrm << queries[lhs_idx]->name
-            << '\t' << queries[lhs_idx]->inflated_len
-            << '\t' << match.lhs_position()
+      ostrm << std::format(
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+        queries[lhs_idx]->name,
+        queries[lhs_idx]->inflated_len,
+        match.lhs_position(),
 
-            << '\t' << (match.strand() ? '+' : '-')
+        (match.strand() ? '+' : '-'),
 
-            << '\t' << targets[match.rhs_id() - rhs_offset]->name
-            << '\t' << targets[match.rhs_id() - rhs_offset]->inflated_len
-            << '\t' << match.rhs_position()
-            << '\n';
+        targets[match.rhs_id() - rhs_offset]->name,
+        targets[match.rhs_id() - rhs_offset]->inflated_len,
+        match.rhs_position()
+      );
     }
     /* clang-format on */
   }
@@ -156,20 +163,22 @@ void PrintMatchChainBatch(
     for (const auto& match_chain : match_chains[lhs_idx]) {
       for (const auto& match : match_chain.matches) {
         /* clang-format off */
-        ostrm << queries[lhs_idx]->name
-              << '\t' << queries[lhs_idx]->inflated_len
-              << '\t' << match.lhs_position()
+        ostrm << std::format(
+          "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+          queries[lhs_idx]->name,
+          queries[lhs_idx]->inflated_len,
+          match.lhs_position(),
 
-              << '\t' << (match.strand() ? '+' : '-')
+          (match.strand() ? '+' : '-'),
 
-              << '\t' << targets[match.rhs_id() - rhs_offset]->name
-              << '\t' << targets[match.rhs_id() - rhs_offset]->inflated_len
-              << '\t' << match.rhs_position()
+          targets[match.rhs_id() - rhs_offset]->name,
+          targets[match.rhs_id() - rhs_offset]->inflated_len,
+          match.rhs_position(),
 
-              << '\t' << match_chain.lhs_matches
-              << '\t' << match_chain.rhs_matches
-              << '\t' << chain_id
-              << '\n';
+          match_chain.lhs_matches,
+          match_chain.rhs_matches,
+          chain_id
+        );
         /* clang-format on */
       }
       ++chain_id;

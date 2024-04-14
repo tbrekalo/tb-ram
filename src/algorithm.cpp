@@ -554,11 +554,12 @@ std::vector<Match> MatchToIndex(
 
   sketch.emplace_back(-1, sequence->inflated_len << 1);  // stop dummy
 
-  for (const auto& kmer : sketch) {
-    std::uint32_t i = kmer.value & mask;
+  for (std::uint32_t i = 0; i < sketch.size(); ++i) {
+    const auto& kmer = sketch[i];
+    std::uint32_t j = kmer.value & mask;
     const uint64_t* origins = nullptr;
-    auto n = indices[i].Find(kmer.value, &origins);
-    if (n > map_config.occurrence) {
+    auto n = indices[j].Find(kmer.value, &origins);
+    if (n > map_config.occurrence && i + 1 != sketch.size()) {
       filtered_hits.emplace_back(&kmer, n, origins);
       if (filtered) {
         filtered->emplace_back(kmer.position());

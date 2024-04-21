@@ -1,8 +1,8 @@
 #include "ram/io.hpp"
 
 #include <exception>
-#include <sstream>
 #include <format>
+#include <sstream>
 
 #include "bioparser/fasta_parser.hpp"
 #include "bioparser/fastq_parser.hpp"
@@ -96,13 +96,12 @@ void PrintOverlapAIBatch(
     for (const auto& jt : it) {
       /* clang-format off */
       ostrm << std::format(
-        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
         queries[jt.lhs_id - lhs_offset]->name,
         queries[jt.lhs_id - lhs_offset]->inflated_len,
         jt.lhs_begin,
         jt.lhs_end,
         jt.lhs_matches,
-        jt.lhs_gaps,
 
         (jt.strand ? '+' : '-'),
 
@@ -111,7 +110,6 @@ void PrintOverlapAIBatch(
         jt.rhs_begin,
         jt.rhs_end,
         jt.rhs_matches,
-        jt.rhs_gaps,
 
         jt.diff_mean,
         jt.q75,

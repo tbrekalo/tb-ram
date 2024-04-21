@@ -10,6 +10,26 @@ namespace ram {
 
 namespace {
 
+constexpr auto kIntercept = -6.11074459;
+
+constexpr auto kCoefs = std::tuple{// matches-diff-normed
+                                   14.40034511222454f,
+                                   // overlap-length-diff-normed
+                                   -4.95568875801383f,
+                                   // matches-normed-2
+                                   19.860111393463423f,
+                                   // matches-normes-4
+                                   -23.294134518285826f};
+
+template <class... Args>
+  requires((std::is_integral_v<Args> || std::is_floating_point_v<Args>) || ...)
+constexpr auto ScoreOvlp(std::tuple<Args...> args) -> double {
+  auto x = [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+    return (kIntercept + ... + (std::get<Is>(kCoefs) * std::get<Is>(args)));
+  }(std::make_index_sequence<sizeof...(Args)>{});
+  return (1. / (1. + std::exp(-x)));
+}
+
 struct ChainEntry {
   std::int64_t chain_id;
   std::uint64_t match_id;
@@ -423,7 +443,6 @@ static std::vector<ScoredMatchSequences> CreateMatchSequences(
     predecessor[i] = prev_idx > 0 ? sorted_matches[prev_idx].match_id : -1;
   }
 
-  auto m = 0;
   for (const auto& [_, head] : chain_heads) {
     if (head.score < config.kmer_length * config.chain) {
       continue;
@@ -434,23 +453,12 @@ static std::vector<ScoredMatchSequences> CreateMatchSequences(
       indices.push_back(j);
     }
 
-    if (indices.size() < config.chain ||
-        head.score /
-                std::max(matches[indices.front()].lhs_position() -
-                             matches[indices.back()].lhs_position(),
-                         strand ? matches[indices.front()].rhs_position() -
-                                      matches[indices.back()].rhs_position()
-                                : matches[indices.back()].rhs_position() -
-                                      matches[indices.front()].rhs_position()) <
-            0.5) {
+    if (indices.size() < config.chain) {
       continue;
     }
 
     std::ranges::reverse(indices);
     dst.push_back({.indices = std::move(indices), .score = head.score});
-    if (m++ >= 2) {
-      break;
-    }
   }
 
   return dst;
@@ -494,11 +502,9 @@ std::vector<MatchChain> FindChainMatches(std::vector<Match>&& matches,
     for (const auto& [index_vec, score] : indices) {
       auto local_matches = std::vector<Match>();
       std::uint32_t lhs_matches = 0;
-      std::uint32_t lhs_gaps = 0;
       std::uint32_t lhs_begin = 0;
       std::uint32_t lhs_end = 0;
       std::uint32_t rhs_matches = 0;
-      std::uint32_t rhs_gaps = 0;
       std::uint32_t rhs_begin = 0;
       std::uint32_t rhs_end = 0;
 
@@ -506,7 +512,6 @@ std::vector<MatchChain> FindChainMatches(std::vector<Match>&& matches,
         std::uint32_t lhs_pos = matches[lhs_idx + idx].lhs_position();
         if (lhs_pos > lhs_end) {
           lhs_matches += lhs_end - lhs_begin;
-          lhs_gaps += lhs_pos - lhs_end;
           lhs_begin = lhs_pos;
         }
         lhs_end = lhs_pos + config.kmer_length;
@@ -516,7 +521,6 @@ std::vector<MatchChain> FindChainMatches(std::vector<Match>&& matches,
             strand ? rhs_pos : (1U << 31) - (rhs_pos + config.kmer_length - 1);
         if (rhs_pos > rhs_end) {
           rhs_matches += rhs_end - rhs_begin;
-          rhs_gaps += rhs_pos - rhs_end;
           rhs_begin = rhs_pos;
         }
         rhs_end = rhs_pos + config.kmer_length;
@@ -525,11 +529,38 @@ std::vector<MatchChain> FindChainMatches(std::vector<Match>&& matches,
       lhs_matches += lhs_end - lhs_begin;
       rhs_matches += rhs_end - rhs_begin;
 
+      auto lhs_overlap_len = matches[index_vec.back()].lhs_position() -
+                             matches[index_vec.front()].lhs_position();
+      auto rhs_overlap_len = strand
+                                 ? matches[index_vec.back()].rhs_position() -
+                                       matches[index_vec.front()].rhs_position()
+
+                                 : matches[index_vec.front()].rhs_position() -
+                                       matches[index_vec.back()].rhs_position();
+      auto overlap_len = std::max(lhs_overlap_len, rhs_overlap_len);
+      auto overlap_length_diff_normed =
+          1. *
+          std::labs(static_cast<std::int32_t>(lhs_overlap_len) -
+                    static_cast<std::int32_t>(rhs_overlap_len)) /
+          overlap_len;
+
+      auto matches_normed =
+          1. * std::min(lhs_matches, rhs_matches) / overlap_len;
+
+      auto matches_diff_normed =
+          std::fabs((1. * lhs_matches / lhs_overlap_len) -
+                    (1. * rhs_matches / rhs_overlap_len));
+
+      if (auto n_matches = std::min(lhs_matches, rhs_matches);
+          n_matches < config.min_matches ||
+          ScoreOvlp(std::tuple{matches_diff_normed, overlap_length_diff_normed,
+                               matches_normed}) < 0.5) {
+        continue;
+      }
+
       match_chains.push_back(MatchChain{.matches = std::move(local_matches),
                                         .lhs_matches = lhs_matches,
-                                        .lhs_gaps = lhs_gaps,
                                         .rhs_matches = rhs_matches,
-                                        .rhs_gaps = rhs_gaps,
                                         .score = score});
     }
   }
@@ -542,8 +573,8 @@ std::vector<OverlapAI> ChainAI(std::uint32_t lhs_id,
                                ChainConfig config) {
   std::vector<OverlapAI> dst;
   std::vector<std::uint32_t> diffs;
-  for (const auto& [chain_matches, lhs_matches, lhs_gaps, rhs_matches, rhs_gaps,
-                    score] : FindChainMatches(std::move(matches), config)) {
+  for (const auto& [chain_matches, lhs_matches, rhs_matches, score] :
+       FindChainMatches(std::move(matches), config)) {
     if (chain_matches.empty()) {
       continue;
     }
@@ -561,7 +592,6 @@ std::vector<OverlapAI> ChainAI(std::uint32_t lhs_id,
         .lhs_begin = chain_matches.front().lhs_position(),
         .lhs_end = config.kmer_length + chain_matches.back().lhs_position(),
         .lhs_matches = lhs_matches,
-        .lhs_gaps = lhs_gaps,
 
         .strand = strand,
 
@@ -572,7 +602,6 @@ std::vector<OverlapAI> ChainAI(std::uint32_t lhs_id,
                    (strand ? chain_matches.back().rhs_position()
                            : chain_matches.front().rhs_position()),
         .rhs_matches = rhs_matches,
-        .rhs_gaps = rhs_gaps,
 
         .diff_mean =
             [&diffs] {

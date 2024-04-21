@@ -101,9 +101,7 @@ class Index {
 struct MatchChain {
   std::vector<Match> matches;
   std::uint32_t lhs_matches;
-  std::uint32_t lhs_gaps;
   std::uint32_t rhs_matches;
-  std::uint32_t rhs_gaps;
   double score;
 };
 
@@ -112,7 +110,6 @@ struct OverlapAI {
   std::uint32_t lhs_begin;
   std::uint32_t lhs_end;
   std::uint32_t lhs_matches;
-  std::uint32_t lhs_gaps;
 
   bool strand;  // Watcon-Crick strand
 
@@ -120,7 +117,6 @@ struct OverlapAI {
   std::uint32_t rhs_begin;
   std::uint32_t rhs_end;
   std::uint32_t rhs_matches;
-  std::uint32_t rhs_gaps;
 
   double diff_mean;
   std::uint32_t q75;

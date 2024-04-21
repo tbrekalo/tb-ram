@@ -4,6 +4,7 @@
 #include <format>
 #include <iostream>
 #include <mutex>
+#include <ranges>
 #include <string_view>
 
 #include "biosoup/nucleic_acid.hpp"
@@ -72,12 +73,29 @@ struct BatchContext {
   std::function<void()> update_progress;
 };
 
+static auto PrintChainBatch =
+    [chain_idx = 0uz](
+        std::ostream& ostrm,
+        std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+        std::span<const std::unique_ptr<biosoup::NucleicAcid>> queries,
+        std::span<const std::vector<ram::MatchChain>> match_chains) mutable
+    -> void {
+  ram::PrintMatchChainBatch(ostrm, targets, queries, match_chains);
+  auto foo = std::ranges::fold_left(
+      match_chains |
+          std::ranges::views::transform(
+              [](const std::vector<ram::MatchChain>& vec) -> std::size_t {
+                return vec.size();
+              }),
+      chain_idx, std::plus<std::size_t>{});
+};
+
 template <Mode mode>
 static const auto ExecuteBatchImpl = [](BatchContext ctx) -> void {
   auto [operation, prototype, print] = [] {
     if constexpr (mode == Mode::kChain) {
       return std::tuple{&ram::ChainOnIndex, std::vector<ram::MatchChain>{},
-                        &ram::PrintMatchChainBatch};
+                        PrintChainBatch};
     } else if constexpr (mode == Mode::kMatch) {
       return std::tuple{&ram::MatchToIndex, std::vector<ram::Match>{},
                         &ram::PrintMatchBatch};

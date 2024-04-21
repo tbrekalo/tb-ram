@@ -78,6 +78,7 @@ inline std::vector<std::uint64_t> LongestMatchSubsequence(
   }
 
   std::vector<std::uint64_t> minimal(matches.size() + 1, 0);
+  std::vector<std::uint64_t> subsequence_head(matches.size() + 1, 0);
   std::vector<std::uint64_t> predecessor(matches.size(), 0);
 
   std::uint64_t longest = 0;
@@ -85,22 +86,25 @@ inline std::vector<std::uint64_t> LongestMatchSubsequence(
     std::uint64_t lo = 1, hi = longest;
     while (lo <= hi) {
       std::uint64_t mid = lo + (hi - lo) / 2;
-      if (matches[minimal[mid]].lhs_position() < matches[idx].lhs_position() &&
-          comp(matches[minimal[mid]].rhs_position(),
-               matches[idx].rhs_position())) {
+      if (matches[subsequence_head[mid]].lhs_position() <
+              matches[idx].lhs_position() ||
+          (matches[subsequence_head[mid]].lhs_position() ==
+               matches[idx].lhs_position() &&
+           comp(matches[subsequence_head[mid]].rhs_position(),
+                matches[idx].rhs_position()))) {
         lo = mid + 1;
       } else {
         hi = mid - 1;
       }
     }
 
-    predecessor[idx] = minimal[lo - 1];
-    minimal[lo] = idx;
+    predecessor[idx] = subsequence_head[lo - 1];
+    subsequence_head[lo] = idx;
     longest = std::max(longest, lo);
   }
 
   std::vector<std::uint64_t> dst;
-  for (std::uint64_t i = 0, j = minimal[longest]; i < longest; ++i) {
+  for (std::uint64_t i = 0, j = subsequence_head[longest]; i < longest; ++i) {
     dst.emplace_back(j);
     j = predecessor[j];
   }

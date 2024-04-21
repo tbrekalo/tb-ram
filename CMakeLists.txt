@@ -34,6 +34,7 @@ option(ram_compile_diagnostics "Build ram with compile time diagnostics" OFF)
 find_package(biosoup 0.10.0 QUIET)
 find_package(glog 0.7.0 QUIET)
 find_package(thread_pool 5.0.0 QUIET)
+find_package(unordered_dense 4.4.0 QUIET)
 
 if(NOT biosoup_FOUND)
   if(ram_install)
@@ -85,6 +86,24 @@ if(NOT thread_pool_FOUND)
     FetchContent_Populate(thread_pool)
     add_subdirectory(${thread_pool_SOURCE_DIR} ${thread_pool_BINARY_DIR}
                      EXCLUDE_FROM_ALL)
+  endif()
+endif()
+
+if(NOT unordered_dense_FOUND)
+  if(ram_install)
+    message(FATAL_ERROR "Missing package unordered_dense!")
+  endif()
+
+  FetchContent_Declare(
+    unordered_dense
+    GIT_REPOSITORY https://github.com/martinus/unordered_dense
+    GIT_TAG v4.4.0)
+
+  FetchContent_GetProperties(unordered_dense)
+  if(NOT unordered_dense_POPULATED)
+    FetchContent_Populate(unordered_dense)
+    add_subdirectory(${unordered_dense_SOURCE_DIR}
+                     ${unordered_dense_BINARY_DIR} EXCLUDE_FROM_ALL)
   endif()
 endif()
 
@@ -162,7 +181,7 @@ target_include_directories(
                          $<INSTALL_INTERFACE:include>)
 
 target_link_libraries(ram bioparser::bioparser biosoup::biosoup glog::glog
-                      thread_pool::thread_pool)
+                      thread_pool::thread_pool unordered_dense::unordered_dense)
 
 target_compile_options(
   ram

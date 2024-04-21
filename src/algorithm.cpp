@@ -10,16 +10,16 @@ namespace ram {
 
 namespace {
 
-constexpr auto kIntercept = -6.11074459;
+constexpr auto kIntercept = -6.25610947;
 
-constexpr auto kCoefs = std::tuple{// matches-diff-normed
-                                   14.40034511222454f,
+constexpr auto kCoefs = std::tuple{// score-normed
+                                   -2.0023814836321923f,
+                                   // matches-diff-normed
+                                   8.0469176656686f,
                                    // overlap-length-diff-normed
-                                   -4.95568875801383f,
-                                   // matches-normed-2
-                                   19.860111393463423f,
-                                   // matches-normes-4
-                                   -23.294134518285826f};
+                                   0.2188502193087285f,
+                                   // matches-normed
+                                   9.147126757618757f};
 
 template <class... Args>
   requires((std::is_integral_v<Args> || std::is_floating_point_v<Args>) || ...)
@@ -423,7 +423,7 @@ static std::vector<ScoredMatchSequences> CreateMatchSequences(
         sorted_matches.begin();
 
     auto prev_idx = cur_idx - 1;
-    if (cur_idx == sorted_matches.size()) {
+    if (static_cast<std::uint32_t>(cur_idx) == sorted_matches.size()) {
       sorted_matches.resize(sorted_matches.size() + 1);
     }
 
@@ -544,6 +544,7 @@ std::vector<MatchChain> FindChainMatches(std::vector<Match>&& matches,
                     static_cast<std::int32_t>(rhs_overlap_len)) /
           overlap_len;
 
+      auto score_normed = score / overlap_len;
       auto matches_normed =
           1. * std::min(lhs_matches, rhs_matches) / overlap_len;
 
@@ -553,8 +554,9 @@ std::vector<MatchChain> FindChainMatches(std::vector<Match>&& matches,
 
       if (auto n_matches = std::min(lhs_matches, rhs_matches);
           n_matches < config.min_matches ||
-          ScoreOvlp(std::tuple{matches_diff_normed, overlap_length_diff_normed,
-                               matches_normed}) < 0.5) {
+          ScoreOvlp(std::tuple{score_normed, matches_diff_normed,
+                               overlap_length_diff_normed, matches_normed}) <
+              0.5) {
         continue;
       }
 
@@ -603,6 +605,7 @@ std::vector<OverlapAI> ChainAI(std::uint32_t lhs_id,
                            : chain_matches.front().rhs_position()),
         .rhs_matches = rhs_matches,
 
+        .score = score,
         .diff_mean =
             [&diffs] {
               return std::accumulate(diffs.begin(), diffs.end(), 0.,

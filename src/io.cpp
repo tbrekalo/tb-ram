@@ -96,7 +96,7 @@ void PrintOverlapAIBatch(
     for (const auto& jt : it) {
       /* clang-format off */
       ostrm << std::format(
-        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
         queries[jt.lhs_id - lhs_offset]->name,
         queries[jt.lhs_id - lhs_offset]->inflated_len,
         jt.lhs_begin,
@@ -111,6 +111,7 @@ void PrintOverlapAIBatch(
         jt.rhs_end,
         jt.rhs_matches,
 
+        jt.score,
         jt.diff_mean,
         jt.q75,
         jt.q90,

@@ -118,6 +118,7 @@ struct OverlapAI {
   std::uint32_t rhs_end;
   std::uint32_t rhs_matches;
 
+  double score;
   double diff_mean;
   std::uint32_t q75;
   std::uint32_t q90;

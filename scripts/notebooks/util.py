@@ -37,6 +37,26 @@ PAF_COLUMNS = [
     "n-residue-matches",
 ]
 
+RAM_OVERLAP_AI_COLUMNS = [
+    "query-name",
+    "query-length",
+    "query-start",
+    "query-end",
+    "query-matches",
+    "strand",
+    "target-name",
+    "target-length",
+    "target-start",
+    "target-end",
+    "target-matches",
+    "score",
+    "diff-mean",
+    "q75",
+    "q90",
+    "q95",
+    "q98",
+]
+
 
 def load_paf_df(path: Path | str) -> pl.DataFrame:
     """Loads overlaps in paf format.
@@ -141,7 +161,7 @@ def create_annotated_ref_overlaps(
     df_origins: pl.DataFrame,
 ) -> pl.DataFrame:
     """Creates a pl.DataFrame with annoated overlaps.
-    
+
     Args:
         df_ref_overlaps: A pl.DataFrame representing reads to ref overlaps.
         df_origins: A pl.DataFrame with ground truth information

@@ -10,6 +10,8 @@ import catboost as cb
 import numpy as np
 import polars as pl
 
+import util
+
 logging.basicConfig(
     format="time=%(asctime)s loc=%(filename)s:%(lineno)s level=%(levelname)s %(message)s",
     level=logging.INFO,
@@ -23,12 +25,14 @@ RAM_OVLP_COLS = [
     "query-begin",
     "query-end",
     "query-matches",
+    "query-gaps",
     "strand",
     "target-name",
     "target-length",
     "target-begin",
     "target-end",
     "target-matches",
+    "target-gaps",
     "diff-mean",
     "q75",
     "q90",

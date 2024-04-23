@@ -10,16 +10,14 @@ namespace ram {
 
 namespace {
 
-constexpr auto kIntercept = -6.25610947;
+constexpr auto kIntercept = -2.08124118;
 
-constexpr auto kCoefs = std::tuple{// score-normed
-                                   -2.0023814836321923f,
-                                   // matches-diff-normed
-                                   8.0469176656686f,
-                                   // overlap-length-diff-normed
-                                   0.2188502193087285f,
-                                   // matches-normed
-                                   9.147126757618757f};
+constexpr auto kCoefs = std::tuple{
+    -3.268218070659619,    // score-normed
+    8.684199990524847,     // matches-diff-normed
+    -0.32754197336799906,  // overlap-length-diff-normed
+    10.351460182968728     // matches-normed
+};
 
 template <class... Args>
   requires((std::is_integral_v<Args> || std::is_floating_point_v<Args>) || ...)

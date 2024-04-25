@@ -10,20 +10,28 @@ namespace ram {
 
 namespace {
 
-constexpr auto kIntercept = -2.08124118;
+constexpr auto kInterceptLhs = -2.38084641;
 
-constexpr auto kCoefs = std::tuple{
-    -3.268218070659619,    // score-normed
-    8.684199990524847,     // matches-diff-normed
-    -0.32754197336799906,  // overlap-length-diff-normed
-    10.351460182968728     // matches-normed
+constexpr auto kCoefsLhs = std::tuple{
+    -3.7106235417527986,  // score-normed
+    5.468803244688338,    // matches-normed
+    0.1347422495493317,   // matches-normed-diff
 };
 
-template <class... Args>
+constexpr auto kInterceptRhs = -3.15016052;
+
+constexpr auto kCoefsRhs = std::tuple{
+    -0.7543529858381203,  // score-normed
+    4.60687664446948,     // matches-normed
+    3.8180060955855275,   // matches-normed-diff
+};
+
+template <class... Args, class... Coefs>
   requires((std::is_integral_v<Args> || std::is_floating_point_v<Args>) || ...)
-constexpr auto ScoreOvlp(std::tuple<Args...> args) -> double {
+constexpr auto ScoreOvlp(std::tuple<Args...> args, std::tuple<Coefs...> coefs,
+                         double intercept) -> double {
   auto x = [&]<std::size_t... Is>(std::index_sequence<Is...>) {
-    return (kIntercept + ... + (std::get<Is>(kCoefs) * std::get<Is>(args)));
+    return ((std::get<Is>(coefs) * std::get<Is>(args)) + ... + intercept);
   }(std::make_index_sequence<sizeof...(Args)>{});
   return (1. / (1. + std::exp(-x)));
 }
@@ -536,25 +544,23 @@ std::vector<MatchChain> FindChainMatches(std::vector<Match>&& matches,
                                  : matches[index_vec.front()].rhs_position() -
                                        matches[index_vec.back()].rhs_position();
       auto overlap_len = std::max(lhs_overlap_len, rhs_overlap_len);
-      auto overlap_length_diff_normed =
-          1. *
-          std::labs(static_cast<std::int32_t>(lhs_overlap_len) -
-                    static_cast<std::int32_t>(rhs_overlap_len)) /
-          overlap_len;
 
       auto score_normed = score / overlap_len;
       auto matches_normed =
           1. * std::min(lhs_matches, rhs_matches) / overlap_len;
 
-      auto matches_diff_normed =
+      auto matches_normed_diff =
           std::fabs((1. * lhs_matches / lhs_overlap_len) -
                     (1. * rhs_matches / rhs_overlap_len));
 
+      auto args = std::tuple{score_normed, matches_normed, matches_normed_diff};
+
+      auto overlap_score = matches_normed_diff < 0.1
+                               ? ScoreOvlp(args, kCoefsLhs, kInterceptLhs)
+                               : ScoreOvlp(args, kCoefsRhs, kInterceptRhs);
       if (auto n_matches = std::min(lhs_matches, rhs_matches);
           n_matches < config.min_matches ||
-          ScoreOvlp(std::tuple{score_normed, matches_diff_normed,
-                               overlap_length_diff_normed, matches_normed}) <
-              0.5) {
+          (matches_normed_diff > 0.05 && overlap_score < 0.5)) {
         continue;
       }
 

@@ -437,6 +437,19 @@ static std::vector<ScoredMatchSequences> CreateMatchSequences(
                      ? calc_score(sorted_matches[prev_idx].match_id, i) +
                            sorted_matches[prev_idx].score
                      : -1.;
+
+    for (std::int32_t j = prev_idx - 1, k = 50; j > 0 && k > 0; --j, --k) {
+      auto score_j =
+          calc_score(sorted_matches[j].match_id, i) + sorted_matches[j].score;
+
+      if (score_j <= score) {
+        continue;
+      }
+
+      prev_idx = j;
+      score = score_j;
+    }
+
     if (score < 0) {
       score = config.kmer_length;
       ++chain_id;
@@ -470,7 +483,7 @@ static std::vector<ScoredMatchSequences> CreateMatchSequences(
   return dst;
 }
 
-static std::vector<ScoredMatchSequences> FindChainIndicesHeuristic(
+static std::vector<ScoredMatchSequences> FindChainIndices(
     ChainConfig config, std::span<Match> matches, std::uint64_t lhs_idx,
     std::uint64_t rhs_idx, std::uint64_t strand) {
   auto match_sequence = CreateMatchSequences(
@@ -502,8 +515,7 @@ std::vector<MatchChain> FindChainMatches(std::vector<Match>&& matches,
     RadixSort(std::span(matches.begin() + lhs_idx, matches.begin() + rhs_idx),
               64, MatchPositionProjection);
     std::uint64_t strand = matches[lhs_idx].strand();
-    auto indices =
-        FindChainIndicesHeuristic(config, matches, lhs_idx, rhs_idx, strand);
+    auto indices = FindChainIndices(config, matches, lhs_idx, rhs_idx, strand);
 
     for (const auto& [index_vec, score] : indices) {
       auto local_matches = std::vector<Match>();

@@ -10,20 +10,19 @@ namespace ram {
 
 namespace {
 
-constexpr auto kInterceptLhs = -2.38084641;
-
-constexpr auto kCoefsLhs = std::tuple{
-    -3.7106235417527986,  // score-normed
-    5.468803244688338,    // matches-normed
-    0.1347422495493317,   // matches-normed-diff
+// Requirements for the comparison operator passed to a
+// function for finding match subsequences
+template <class T>
+concept BinaryMatchComparator = requires(const T& t, std::uint32_t arg) {
+  { t(arg, arg) } noexcept -> std::same_as<bool>;
 };
 
-constexpr auto kInterceptRhs = -3.15016052;
+constexpr auto kIntercept = -2.51649435;
 
-constexpr auto kCoefsRhs = std::tuple{
-    -0.7543529858381203,  // score-normed
-    4.60687664446948,     // matches-normed
-    3.8180060955855275,   // matches-normed-diff
+constexpr auto kCoefs = std::tuple{
+    -4.143755530605665,  // score-normed
+    6.2125395321412356,  // matches-normed
+    2.319008709644287    // matches-normed-diff
 };
 
 template <class... Args, class... Coefs>
@@ -565,14 +564,11 @@ std::vector<MatchChain> FindChainMatches(std::vector<Match>&& matches,
           std::fabs((1. * lhs_matches / lhs_overlap_len) -
                     (1. * rhs_matches / rhs_overlap_len));
 
-      auto args = std::tuple{score_normed, matches_normed, matches_normed_diff};
-
-      auto overlap_score = matches_normed_diff < 0.1
-                               ? ScoreOvlp(args, kCoefsLhs, kInterceptLhs)
-                               : ScoreOvlp(args, kCoefsRhs, kInterceptRhs);
       if (auto n_matches = std::min(lhs_matches, rhs_matches);
           n_matches < config.min_matches ||
-          (matches_normed_diff > 0.05 && overlap_score < 0.5)) {
+          ScoreOvlp(
+              std::tuple{score_normed, matches_normed, matches_normed_diff},
+              kCoefs, kIntercept) < 0.5) {
         continue;
       }
 

@@ -31,8 +31,8 @@ struct MapToIndexConfig {
 
 struct AlgoConfig {
   std::shared_ptr<thread_pool::ThreadPool> thread_pool;
-  MinimizeConfig minimize;
-  ChainConfig chain;
+  MinimizeConfig minimize_config;
+  ChainConfig chain_config;
 };
 
 struct Kmer {

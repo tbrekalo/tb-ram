@@ -116,7 +116,7 @@ static const auto ExecuteBatchImpl = [](BatchContext ctx) -> void {
         [&](std::size_t jdx) -> void {
           values[jdx] =
               operation(ctx.sequences[jdx], ctx.indices, ctx.map2index_cfg,
-                        ctx.algo_cfg.minimize, ctx.algo_cfg.chain, nullptr);
+                        ctx.algo_cfg.minimize_config, ctx.algo_cfg.chain_config, nullptr);
           ctx.update_progress();
         },
         idx));
@@ -258,7 +258,7 @@ int main(int argc, char** argv) {
 
     auto cfg = ram::AlgoConfig{
         .thread_pool = std::make_shared<thread_pool::ThreadPool>(num_threads),
-        .minimize =
+        .minimize_config =
             ram::MinimizeConfig{
                 .kmer_length =
                     parsed_options["kmer-length"].as<std::uint32_t>(),
@@ -266,7 +266,7 @@ int main(int argc, char** argv) {
                     parsed_options["window-length"].as<std::uint32_t>(),
                 .minhash = parsed_options["minhash"].as<bool>(),
             },
-        .chain = ram::ChainConfig{
+        .chain_config = ram::ChainConfig{
             .kmer_length = parsed_options["kmer-length"].as<std::uint32_t>(),
             .bandwidth = parsed_options["bandwidth"].as<std::uint32_t>(),
             .chain = parsed_options["chain"].as<std::uint32_t>(),
@@ -292,7 +292,7 @@ int main(int argc, char** argv) {
 
       LOG(INFO) << std::format("event=parsed-targets value={}", targets.size());
       auto indices =
-          ram::ConstructIndices(targets, cfg.minimize, cfg.thread_pool);
+          ram::ConstructIndices(targets, cfg.minimize_config, cfg.thread_pool);
       auto map_to_index_cfg = ram::MapToIndexConfig{
           .avoid_equal = is_ava,
           .avoid_symmetric = is_ava,

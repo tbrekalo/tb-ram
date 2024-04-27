@@ -67,7 +67,7 @@ std::vector<Kmer> Minimize(
     MinimizeConfig config);
 
 std::vector<Index> ConstructIndices(
-    std::span<std::unique_ptr<biosoup::NucleicAcid>> sequences,
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> sequences,
     MinimizeConfig minimize_config,
     std::shared_ptr<thread_pool::ThreadPool> thread_pool);
 

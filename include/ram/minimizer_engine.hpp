@@ -24,7 +24,7 @@ class MinimizerEngine {
   MinimizerEngine(MinimizerEngine&&) = default;
   MinimizerEngine& operator=(MinimizerEngine&&) = default;
 
-  ~MinimizerEngine() = default;
+  ~MinimizerEngine();
 
   // transform set of sequences to minimizer index
   // minhash = pick only the smallest sequence->data.size() / k minimizers

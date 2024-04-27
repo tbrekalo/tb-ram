@@ -32,6 +32,8 @@ MinimizerEngine::MinimizerEngine(
           .indices = {},
           .occurences = 0})) {}
 
+MinimizerEngine::~MinimizerEngine() {}
+
 void MinimizerEngine::Minimize(
     std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
     bool minhash) {

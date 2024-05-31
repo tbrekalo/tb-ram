@@ -114,9 +114,9 @@ static const auto ExecuteBatchImpl = [](BatchContext ctx) -> void {
   for (auto idx = 0uz; idx < ctx.sequences.size(); ++idx) {
     futures.push_back(ctx.algo_cfg.thread_pool->Submit(
         [&](std::size_t jdx) -> void {
-          values[jdx] =
-              operation(ctx.sequences[jdx], ctx.indices, ctx.map2index_cfg,
-                        ctx.algo_cfg.minimize_config, ctx.algo_cfg.chain_config, nullptr);
+          values[jdx] = operation(
+              ctx.sequences[jdx], ctx.indices, ctx.map2index_cfg,
+              ctx.algo_cfg.minimize_config, ctx.algo_cfg.chain_config, nullptr);
           ctx.update_progress();
         },
         idx));
@@ -265,6 +265,9 @@ int main(int argc, char** argv) {
                 .window_length =
                     parsed_options["window-length"].as<std::uint32_t>(),
                 .minhash = parsed_options["minhash"].as<bool>(),
+                .tmer_length = std::min(
+                    11u, parsed_options["kmer-length"].as<std::uint32_t>()),
+                .mask_counts = std::nullopt,
             },
         .chain_config = ram::ChainConfig{
             .kmer_length = parsed_options["kmer-length"].as<std::uint32_t>(),
@@ -291,6 +294,11 @@ int main(int argc, char** argv) {
       }
 
       LOG(INFO) << std::format("event=parsed-targets value={}", targets.size());
+      auto counts = ram::ConstructMaskCounts(targets, cfg.minimize_config,
+                                             cfg.thread_pool);
+      cfg.minimize_config.mask_counts = counts;
+
+      LOG(INFO) << std::format("event=counted-masks value={}", targets.size());
       auto indices =
           ram::ConstructIndices(targets, cfg.minimize_config, cfg.thread_pool);
       auto map_to_index_cfg = ram::MapToIndexConfig{

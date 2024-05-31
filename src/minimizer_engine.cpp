@@ -10,6 +10,7 @@ struct ram::MinimizerEngine::Impl {
   AlgoConfig algo_config;
   std::vector<Index> indices;
   std::uint32_t occurences;
+  std::vector<std::uint64_t> counts;
 };
 
 MinimizerEngine::MinimizerEngine(
@@ -23,6 +24,9 @@ MinimizerEngine::MinimizerEngine(
                              MinimizeConfig{
                                  .kmer_length = k,
                                  .window_length = w,
+
+                                 .tmer_length = std::min(11u, k),
+                                 .mask_counts = std::nullopt,
                              },
                          .chain_config = ChainConfig{.kmer_length = k,
                                                      .bandwidth = bandwidth,
@@ -30,17 +34,25 @@ MinimizerEngine::MinimizerEngine(
                                                      .min_matches = matches,
                                                      .gap = gap}},
           .indices = {},
-          .occurences = 0})) {}
+          .occurences = 0,
+          .counts = {},
+      })) {}
 
 MinimizerEngine::~MinimizerEngine() {}
 
 void MinimizerEngine::Minimize(
     std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
     bool minhash) {
+  pimpl_->counts =
+      ConstructMaskCounts(targets, pimpl_->algo_config.minimize_config,
+                          pimpl_->algo_config.thread_pool);
+
   auto minimize_cfg = MinimizeConfig{
       .kmer_length = pimpl_->algo_config.minimize_config.kmer_length,
       .window_length = pimpl_->algo_config.minimize_config.window_length,
       .minhash = minhash,
+      .tmer_length = pimpl_->algo_config.minimize_config.tmer_length,
+      .mask_counts = pimpl_->counts,
   };
   pimpl_->indices =
       ConstructIndices(targets, minimize_cfg, pimpl_->algo_config.thread_pool);

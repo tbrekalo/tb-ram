@@ -66,6 +66,11 @@ std::vector<Kmer> Minimize(
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
     MinimizeConfig config);
 
+std::vector<std::uint64_t> ConstructMaskCounts(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> sequences,
+    MinimizeConfig minimize_config,
+    std::shared_ptr<thread_pool::ThreadPool> thread_pool);
+
 std::vector<Index> ConstructIndices(
     std::span<const std::unique_ptr<biosoup::NucleicAcid>> sequences,
     MinimizeConfig minimize_config,

@@ -2,6 +2,7 @@
 #define RAM_TYPES_HPP_
 
 #include <cstdint>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -13,6 +14,9 @@ struct MinimizeConfig {
   std::uint32_t kmer_length = 15;
   std::uint32_t window_length = 5;
   bool minhash = false;
+
+  std::uint32_t tmer_length = 11;
+  std::optional<std::span<std::uint64_t>> mask_counts = std::nullopt;
 };
 
 struct ChainConfig {

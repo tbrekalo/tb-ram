@@ -24,8 +24,6 @@ endif()
 
 option(ram_install "Generate library install target" OFF)
 option(ram_build_exe "Build executable" ${RAM_MAIN_PROJECT})
-option(ram_build_tests "Build unit tests" ${RAM_MAIN_PROJECT})
-option(ram_build_benchmarks "Build microbenchmarks" ${RAM_MAIN_PROJECT})
 option(ram_addres_sanitize
        "Build ram with ASAN support in Debug and RelWithDebInfo builds."
        ${RAM_MAIN_PROJECT})
@@ -121,7 +119,7 @@ if(ram_build_exe)
   endif()
 endif()
 
-if(ram_build_exe OR ram_build_tests)
+if(ram_build_exe)
   find_package(bioparser 3.0.13 QUIET)
   if(NOT bioparser_FOUND)
     FetchContent_Declare(
@@ -133,41 +131,6 @@ if(ram_build_exe OR ram_build_tests)
     if(NOT bioparser_POPULATED)
       FetchContent_Populate(bioparser)
       add_subdirectory(${bioparser_SOURCE_DIR} ${bioparser_BINARY_DIR}
-                       EXCLUDE_FROM_ALL)
-    endif()
-  endif()
-endif()
-
-if(ram_build_tests)
-  find_package(GTest 1.10.0 QUIET)
-  if(NOT GTest_FOUND)
-    FetchContent_Declare(
-      googletest
-      GIT_REPOSITORY https://github.com/google/googletest
-      GIT_TAG release-1.10.0)
-
-    FetchContent_GetProperties(googletest)
-    if(NOT googletest_POPULATED)
-      FetchContent_Populate(googletest)
-      add_subdirectory(${googletest_SOURCE_DIR} ${googletest_BINARY_DIR}
-                       EXCLUDE_FROM_ALL)
-      add_library(GTest::Main ALIAS gtest_main)
-    endif()
-  endif()
-endif()
-
-if(ram_build_benchmarks)
-  find_package(benchmark 1.8.3 QUIET)
-  if(NOT benchmark)
-    FetchContent_Declare(
-      benchmark
-      GIT_REPOSITORY https://github.com/google/benchmark
-      GIT_TAG v1.8.3)
-
-    FetchContent_GetProperties(benchmark)
-    if(NOT benchmark_POPULATED)
-      FetchContent_Populate(benchmark)
-      add_subdirectory(${benchmark_SOURCE_DIR} ${benchmark_BINARY_DIR}
                        EXCLUDE_FROM_ALL)
     endif()
   endif()
@@ -244,23 +207,4 @@ if(ram_build_exe)
   set_property(TARGET ram_exe PROPERTY OUTPUT_NAME ram)
 
   install(TARGETS ram_exe DESTINATION ${CMAKE_INSTALL_BINDIR})
-endif()
-
-if(ram_build_tests)
-  add_executable(ram_test test/minimizer_engine_test.cpp)
-
-  target_link_libraries(ram_test ram bioparser::bioparser GTest::Main)
-
-  target_compile_definitions(
-    ram_test
-    PRIVATE TEST_DATA="${PROJECT_SOURCE_DIR}/test/data/sample.fasta.gz")
-endif()
-
-if(ram_build_benchmarks)
-  add_executable(ram_benchmark benchmark/ram_benchmark.cpp)
-
-  target_link_libraries(ram_benchmark benchmark ram)
-  target_compile_definitions(
-    ram_benchmark
-    PRIVATE TEST_DATA="${PROJECT_SOURCE_DIR}/test/data/sample.fasta.gz")
 endif()

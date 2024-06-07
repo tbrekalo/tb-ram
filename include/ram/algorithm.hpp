@@ -98,7 +98,8 @@ std::vector<Match> MatchToIndex(
     MinimizeConfig minimize_config, ChainConfig chain_config,
     std::vector<std::uint32_t>* filtered);
 
-std::vector<MatchChain> FindChainMatches(std::vector<Match>&& matches,
+std::vector<MatchChain> FindChainMatches(std::uint32_t lhs_id,
+                                         std::vector<Match>&& matches,
                                          ChainConfig config);
 
 // Chain matches into overlaps.

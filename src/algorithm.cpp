@@ -94,26 +94,25 @@ std::vector<Kmer> Minimize(
   }
 
   std::uint64_t mask = (1ULL << (config.kmer_length * 2)) - 1;
-  std::uint64_t tmask = (1ULL << (config.tmer_length * 2)) - 1;
-  auto hash = CreateHashFn(mask);
-  auto cmp_fn = [has_counts = config.mask_counts.has_value(),
-                 counts = config.mask_counts,
-                 tmask](std::uint64_t lhs, std::uint64_t rhs) -> bool {
-    if (has_counts) {
-      return (*counts)[lhs & tmask] > (*counts)[rhs & tmask];
-    }
-    return lhs > rhs;
+
+  auto hash = [&](std::uint64_t key) -> std::uint64_t {
+    key = ((~key) + (key << 21)) & mask;
+    key = key ^ (key >> 24);
+    key = ((key + (key << 3)) + (key << 8)) & mask;
+    key = key ^ (key >> 14);
+    key = ((key + (key << 2)) + (key << 4)) & mask;
+    key = key ^ (key >> 28);
+    key = (key + (key << 31)) & mask;
+    return key;
   };
 
   std::deque<Kmer> window;
   auto window_add = [&](std::uint64_t value, std::uint64_t location) -> void {
-    auto hashed_value = hash(value);
-    while (!window.empty() && cmp_fn(window.back().value, value)) {
+    while (!window.empty() && window.back().value > value) {
       window.pop_back();
     }
-    window.emplace_back(hashed_value, location);
+    window.emplace_back(value, location);
   };
-
   auto window_update = [&](std::uint32_t position) -> void {
     while (!window.empty() && (window.front().position()) < position) {
       window.pop_front();
@@ -134,9 +133,10 @@ std::vector<Kmer> Minimize(
     reverse_minimizer = (reverse_minimizer >> 2) | ((c ^ 3) << shift);
     if (i >= config.kmer_length - 1U) {
       if (minimizer < reverse_minimizer) {
-        window_add(minimizer, (i - (config.kmer_length - 1U)) << 1 | 0);
+        window_add(hash(minimizer), (i - (config.kmer_length - 1U)) << 1 | 0);
       } else if (minimizer > reverse_minimizer) {
-        window_add(reverse_minimizer, (i - (config.kmer_length - 1U)) << 1 | 1);
+        window_add(hash(reverse_minimizer),
+                   (i - (config.kmer_length - 1U)) << 1 | 1);
       }
     }
     if (i >= (config.kmer_length - 1U) + (config.window_length - 1U)) {
@@ -163,60 +163,6 @@ std::vector<Kmer> Minimize(
   }
 
   return dst;
-}
-
-std::vector<std::uint64_t> ConstructMaskCounts(
-    std::span<const std::unique_ptr<biosoup::NucleicAcid>> sequences,
-    MinimizeConfig minimize_config,
-    std::shared_ptr<thread_pool::ThreadPool> thread_pool) {
-  const auto tmer_len = minimize_config.tmer_length;
-  const auto count_size = 1uz << (2uz * tmer_len);
-
-  std::vector<std::vector<std::uint64_t>> thread_local_counts(
-      thread_pool->num_threads(), std::vector<std::uint64_t>(count_size));
-
-  auto count_lambda = [sequences, &thread_pool, &thread_local_counts, tmer_len,
-                       shift = (tmer_len - 1uz) * 2uz,
-                       mask = count_size - 1uz](std::size_t j) -> void {
-    auto& counts = thread_local_counts[thread_pool->thread_map().at(
-        std::this_thread::get_id())];
-
-    auto curr_kmer = 0ull;
-    auto curr_rev_kmer = 0ull;
-    for (auto k = 0uz; k < sequences[j]->inflated_len; ++k) {
-      auto c = sequences[j]->Code(k);
-      curr_kmer = ((curr_kmer << 2) | c) & mask;
-      curr_rev_kmer = (curr_rev_kmer >> 2) | ((c ^ 3) << shift);
-      if (k >= tmer_len) {
-        ++counts[curr_kmer];
-        ++counts[curr_rev_kmer];
-      }
-    }
-  };
-
-  std::vector<std::future<void>> count_futures;
-  for (auto i = 0uz; i < sequences.size(); ++i) {
-    count_futures.push_back(thread_pool->Submit(count_lambda, i));
-  }
-
-  for (auto& it : count_futures) {
-    it.wait();
-  }
-
-  for (auto i = 1uz; i < thread_local_counts.size(); ++i) {
-    auto j = 0uz;
-    for (; j + 4uz < count_size; j += 4uz) {
-      for (auto k = 0uz; k < 4u; ++k) {
-        thread_local_counts[0][j + k] += thread_local_counts[i][j + k];
-      }
-    }
-
-    for (; j < count_size; ++j) {
-      thread_local_counts[0][j] += thread_local_counts[i][j];
-    }
-  }
-
-  return thread_local_counts[0];
 }
 
 std::vector<Index> ConstructIndices(

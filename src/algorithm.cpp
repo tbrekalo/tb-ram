@@ -451,11 +451,29 @@ static auto FindMatchIntervals(ChainConfig config,
       }
     }
   }
+
+  DCHECK(std::ranges::all_of(
+      intervals,
+      [matches](std::pair<std::int64_t, std::int64_t> interval) -> bool {
+        return std::ranges::all_of(
+            matches.subspan(interval.first, interval.second - interval.first),
+            [rhs_id = matches[interval.first].rhs_id()](
+                std::uint32_t id) -> bool { return rhs_id == id; },
+            &Match::rhs_id);
+      }));
+
   return intervals;
 }
 
 static std::vector<ScoredMatchSequences> CreateMatchSequences(
     ChainConfig config, std::span<Match> matches, std::uint64_t strand) {
+  DCHECK(not matches.empty());
+  DCHECK(std::ranges::all_of(
+      matches,
+      [rhs_id = matches.front().rhs_id()](std::uint64_t id) -> bool {
+        return rhs_id == id;
+      },
+      &Match::rhs_id));
   std::vector<ScoredMatchSequences> dst;
 
   std::vector<std::int64_t> predecessor(matches.size(), -1);
@@ -563,6 +581,7 @@ std::vector<MatchChain> FindChainMatches([[maybe_unused]] std::uint32_t lhs_id,
     auto indices = FindChainIndices(config, matches, lhs_idx, rhs_idx, strand);
 
     for (const auto& [index_vec, score] : indices) {
+      DCHECK(not index_vec.empty());
       for (auto ik = 1uz; ik < index_vec.size(); ++ik) {
         DCHECK(matches[lhs_idx + index_vec[ik - 1]].lhs_position() <=
                matches[lhs_idx + index_vec[ik]].lhs_position());

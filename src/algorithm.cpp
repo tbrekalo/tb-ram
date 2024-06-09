@@ -18,19 +18,6 @@ concept BinaryMatchComparator = requires(const T& t, std::uint32_t arg) {
   { t(arg, arg) } noexcept -> std::same_as<bool>;
 };
 
-auto CreateHashFn(std::uint64_t mask) {
-  return [mask](std::uint64_t key) -> std::uint64_t {
-    key = ((~key) + (key << 21)) & mask;
-    key = key ^ (key >> 24);
-    key = ((key + (key << 3)) + (key << 8)) & mask;
-    key = key ^ (key >> 14);
-    key = ((key + (key << 2)) + (key << 4)) & mask;
-    key = key ^ (key >> 28);
-    key = (key + (key << 31)) & mask;
-    return key;
-  };
-}
-
 struct ChainEntry {
   std::int64_t match_idx;
   double score;

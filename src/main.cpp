@@ -293,7 +293,6 @@ int main(int argc, char** argv) {
       LOG(INFO) << std::format("event=parsed-targets value={}", targets.size());
       auto indices =
           ram::ConstructIndices(targets, cfg.minimize_config, cfg.thread_pool);
-      cfg.minimize_config.mask_counts = std::nullopt;
       auto map_to_index_cfg = ram::MapToIndexConfig{
           .avoid_equal = is_ava,
           .avoid_symmetric = is_ava,

@@ -19,8 +19,8 @@ struct ChainConfig {
   std::uint32_t kmer_length = 15;
   std::uint32_t bandwidth = 500;
   std::uint32_t chain = 4;
-  std::uint32_t min_matches = 100;
-  std::uint64_t gap = 10'000;
+  std::int32_t min_matches = 100;
+  std::int64_t gap = 10'000;
 };
 
 struct MapToIndexConfig {

@@ -15,7 +15,7 @@ struct ram::MinimizerEngine::Impl {
 MinimizerEngine::MinimizerEngine(
     std::shared_ptr<thread_pool::ThreadPool> thread_pool, std::uint32_t k,
     std::uint32_t w, std::uint32_t bandwidth, std::uint32_t chain,
-    std::uint32_t matches, std::uint32_t gap)
+    std::int32_t matches, std::int32_t gap)
     : pimpl_(std::unique_ptr<Impl>(new Impl{
           .algo_config =
               AlgoConfig{.thread_pool = std::move(thread_pool),

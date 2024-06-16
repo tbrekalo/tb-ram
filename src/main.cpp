@@ -114,9 +114,9 @@ static const auto ExecuteBatchImpl = [](BatchContext ctx) -> void {
   for (auto idx = 0uz; idx < ctx.sequences.size(); ++idx) {
     futures.push_back(ctx.algo_cfg.thread_pool->Submit(
         [&](std::size_t jdx) -> void {
-          values[jdx] =
-              operation(ctx.sequences[jdx], ctx.indices, ctx.map2index_cfg,
-                        ctx.algo_cfg.minimize_config, ctx.algo_cfg.chain_config, nullptr);
+          values[jdx] = operation(
+              ctx.sequences[jdx], ctx.indices, ctx.map2index_cfg,
+              ctx.algo_cfg.minimize_config, ctx.algo_cfg.chain_config, nullptr);
           ctx.update_progress();
         },
         idx));
@@ -196,10 +196,10 @@ int main(int argc, char** argv) {
       cxxopts::value<std::uint32_t>()->default_value("4"))
     ("matches",
       "minimal number of matching bases in overlap",
-      cxxopts::value<std::uint32_t>()->default_value("100"))
+      cxxopts::value<std::int32_t>()->default_value("100"))
     ("gap",
       "maximal gap between minimizer hits in a chain",
-      cxxopts::value<std::uint64_t>()->default_value("10000"))
+      cxxopts::value<std::int64_t>()->default_value("10000"))
     ("minhash",
       "use only a portion of all minimizers")
     ("query-batch-size",
@@ -270,8 +270,8 @@ int main(int argc, char** argv) {
             .kmer_length = parsed_options["kmer-length"].as<std::uint32_t>(),
             .bandwidth = parsed_options["bandwidth"].as<std::uint32_t>(),
             .chain = parsed_options["chain"].as<std::uint32_t>(),
-            .min_matches = parsed_options["matches"].as<std::uint32_t>(),
-            .gap = parsed_options["gap"].as<std::uint64_t>(),
+            .min_matches = parsed_options["matches"].as<std::int32_t>(),
+            .gap = parsed_options["gap"].as<std::int64_t>(),
         }};
 
     const auto mode = parsed_options["mode"].as<Mode>();

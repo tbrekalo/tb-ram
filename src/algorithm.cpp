@@ -51,23 +51,37 @@ auto CreateScoreCalculator(ChainConfig config, std::span<Match> matches,
                            std::uint64_t strand) {
   return [matches, strand, w = config.kmer_length, g = config.gap](
              std::uint32_t prev, std::uint32_t cur) -> double {
-    auto l = std::max(
-        matches[cur].lhs_position() - matches[prev].lhs_position(),
-        strand ? matches[cur].rhs_position() - matches[prev].rhs_position()
-               : matches[prev].rhs_position() - matches[cur].rhs_position());
+    auto l = [&] -> double {
+      if (matches[cur].lhs_position() <= matches[prev].lhs_position()) {
+        return -(1e9 + 11);
+      }
 
-    if (l > g) {
+      auto ret = std::max(
+          matches[cur].lhs_position() - matches[prev].lhs_position(),
+          strand ? matches[cur].rhs_position() - matches[prev].rhs_position()
+                 : matches[prev].rhs_position() - matches[cur].rhs_position());
+
+      if (ret >= g) {
+        return -(1e9 + 11);
+      }
+
+      return ret;
+    }();
+
+    if (l < 0) {
       return -(1e9 + 11);
     }
 
-    return 1. * std::min(std::min(matches[cur].lhs_position() -
-                                      matches[prev].lhs_position(),
-                                  strand ? matches[cur].rhs_position() -
-                                               matches[prev].rhs_position()
-                                         : matches[prev].rhs_position() -
-                                               matches[cur].rhs_position()),
-                         w) -
-           (l > 0 ? 0.01 * w * l + 0.5 * std::log2(l) : 0.);
+    auto alpha = std::min(
+        std::min(
+            matches[cur].lhs_position() - matches[prev].lhs_position(),
+            strand
+                ? matches[cur].rhs_position() - matches[prev].rhs_position()
+                : matches[prev].rhs_position() - matches[cur].rhs_position()),
+        w);
+    auto beta = (l > 0 ? 0.01 * w * l + 0.5 * std::log2(l) : 0.);
+
+    return alpha - beta;
   };
 }
 
@@ -416,7 +430,7 @@ static std::vector<ScoredMatchSequences> CreateMatchSequences(
   const auto score_fn = CreateScoreCalculator(config, matches, strand);
   auto cmp_fn = CreateMatchSequenceComparator(matches, strand);
 
-  sorted_matches.push_back({.match_idx = -1, .score = 1. * config.kmer_length});
+  sorted_matches.push_back({.match_idx = -1, .score = 0.});
   for (std::int64_t i = 0; i < static_cast<std::int64_t>(matches.size()); ++i) {
     std::int64_t cur_idx =
         std::lower_bound(sorted_matches.begin() + 1, sorted_matches.end(),
@@ -432,7 +446,8 @@ static std::vector<ScoredMatchSequences> CreateMatchSequences(
                                     sorted_matches[prev_idx].score
                               : config.kmer_length;
 
-    sorted_matches[cur_idx] = heads[i] = {.match_idx = i, .score = score};
+    sorted_matches[cur_idx] =
+        heads[i] = {.match_idx = i, .score = std::max(score, 0.)};
     predecessor[i] = score > 0 ? sorted_matches[prev_idx].match_idx : -1;
   }
 
@@ -448,6 +463,10 @@ static std::vector<ScoredMatchSequences> CreateMatchSequences(
          chain_node = predecessor[chain_node]) {
       chain.push_back(chain_node);
       visited[chain_node] = 1;
+    }
+
+    if (chain.size() < config.chain) {
+      continue;
     }
 
     double score = config.kmer_length;
@@ -593,9 +612,9 @@ std::vector<MatchChain> FindChainMatches([[maybe_unused]] std::uint32_t lhs_id,
       const auto lhs_matches_normed = 1. * lhs_matches / lhs_overlap_len;
       const auto rhs_matches_normed = 1. * rhs_matches / rhs_overlap_len;
 
-      if (std::fabs(rhs_matches_normed - lhs_matches_normed) >= 0.005) {
-        continue;
-      }
+      // if (std::fabs(rhs_matches_normed - lhs_matches_normed) >= 0.005) {
+      //   continue;
+      // }
 
       match_chains.push_back(MatchChain{.matches = std::move(local_matches),
                                         .lhs_matches = lhs_matches,

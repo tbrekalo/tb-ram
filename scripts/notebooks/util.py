@@ -315,7 +315,7 @@ def create_annotated_overlaps_from_ava(
         pl.col("target-start"),
         pl.col("target-end"),
         pl.col("n-residue-matches"),
-        ((pl.col("ratio") > min_ratio) & pl.col("matching-strands"))
+        ((pl.col("ratio") > min_ratio))
         .cast(pl.Int64)
         .alias("label"),
     )

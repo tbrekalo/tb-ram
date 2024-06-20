@@ -445,7 +445,7 @@ static auto FindMatchIntervals(ChainConfig config,
 
 static std::vector<ScoredMatchSequences> CreateMatchSequences(
     ChainConfig config, std::span<Match> matches, std::uint64_t strand) {
-  DCHECK(not matches.empty());
+  DCHECK(matches.empty());
   DCHECK(std::ranges::all_of(
       matches,
       [rhs_id = matches.front().rhs_id()](std::uint64_t id) -> bool {
@@ -460,43 +460,81 @@ static std::vector<ScoredMatchSequences> CreateMatchSequences(
 
   auto score_fn = CreateScoreCalculator(config, matches, strand);
   auto cmp_fn = CreateMatchSequenceComparator(matches, strand);
+  auto assert_prev_idx = [strand, matches, &sorted_matches](
+                             std::int64_t sorted_matches_idx,
+                             std::int64_t cur_match_idx) -> void {
+    if (sorted_matches_idx > 0 && strand) {
+      DCHECK(
+          matches[cur_match_idx].rhs_position() >=
+          matches[sorted_matches[sorted_matches_idx].match_idx].rhs_position())
+          << std::format("strand={} matches[{}]={} matches[{}]={} ", strand,
+                         cur_match_idx, matches[cur_match_idx].rhs_position(),
+                         sorted_matches[sorted_matches_idx].match_idx,
+                         matches[sorted_matches[sorted_matches_idx].match_idx]
+                             .rhs_position());
+    } else if (sorted_matches_idx > 0 && !strand) {
+      DCHECK(
+          matches[cur_match_idx].rhs_position() <=
+          matches[sorted_matches[sorted_matches_idx].match_idx].rhs_position())
+          << std::format("strand={} matches[{}]={} matches[{}]={} ", strand,
+                         cur_match_idx, matches[cur_match_idx].rhs_position(),
+                         sorted_matches[sorted_matches_idx].match_idx,
+                         matches[sorted_matches[sorted_matches_idx].match_idx]
+                             .rhs_position());
+    }
+  };
 
   sorted_matches.push_back({.match_idx = -1, .score = 0.});
-  for (std::int64_t i = 0; i < static_cast<std::int64_t>(matches.size()); ++i) {
-    std::int64_t cur_idx =
+  for (std::int64_t match_idx = 0;
+       match_idx < static_cast<std::int64_t>(matches.size()); ++match_idx) {
+    std::int64_t cur_sorted_matches_idx =
         std::lower_bound(sorted_matches.begin() + 1, sorted_matches.end(),
-                         matches[i], cmp_fn) -
+                         matches[match_idx], cmp_fn) -
         sorted_matches.begin();
 
-    auto prev_idx = cur_idx - 1;
-    if (static_cast<std::uint32_t>(cur_idx) == sorted_matches.size()) {
+    auto prev_sorted_matches_idx = cur_sorted_matches_idx - 1;
+    if (static_cast<std::uint32_t>(cur_sorted_matches_idx) ==
+        sorted_matches.size()) {
       sorted_matches.resize(sorted_matches.size() + 1);
     }
 
-    if (prev_idx > 0 && strand) {
-      DCHECK(matches[i].rhs_position() >=
-             matches[sorted_matches[prev_idx].match_idx].rhs_position())
-          << std::format(
-                 "strand={} matches[{}]={} matches[{}]={} ", strand, i,
-                 matches[i].rhs_position(), sorted_matches[prev_idx].match_idx,
-                 matches[sorted_matches[prev_idx].match_idx].rhs_position());
-    } else if (prev_idx > 0 && !strand) {
-      DCHECK(matches[i].rhs_position() <=
-             matches[sorted_matches[prev_idx].match_idx].rhs_position())
-          << std::format(
-                 "strand={} matches[{}]={} matches[{}]={} ", strand, i,
-                 matches[i].rhs_position(), sorted_matches[prev_idx].match_idx,
-                 matches[sorted_matches[prev_idx].match_idx].rhs_position());
-    };
+    assert_prev_idx(prev_sorted_matches_idx, match_idx);
+    auto score =
+        prev_sorted_matches_idx > 0
+            ? score_fn(sorted_matches[prev_sorted_matches_idx].match_idx,
+                       match_idx) +
+                  sorted_matches[prev_sorted_matches_idx].score
+            : config.kmer_length;
 
-    auto score = prev_idx > 0
-                     ? score_fn(sorted_matches[prev_idx].match_idx, i) +
-                           sorted_matches[prev_idx].score
-                     : config.kmer_length;
+    for (std::int64_t candidate_prev = prev_sorted_matches_idx - 1, k = 50;
+         candidate_prev > 0 && k > 0; --candidate_prev, --k) {
+      if (strand and
+          matches[sorted_matches[candidate_prev].match_idx].rhs_position() >=
+              matches[match_idx].rhs_position()) {
+        continue;
+      }
 
-    sorted_matches[cur_idx] =
-        heads[i] = {.match_idx = i, .score = std::max(score, 0.)};
-    predecessor[i] = score > 0 ? sorted_matches[prev_idx].match_idx : -1;
+      if (!strand and
+          matches[sorted_matches[candidate_prev].match_idx].rhs_position() <=
+              matches[match_idx].rhs_position()) {
+        continue;
+      }
+
+      assert_prev_idx(candidate_prev, match_idx);
+      if (auto new_score =
+              score_fn(sorted_matches[candidate_prev].match_idx, match_idx) +
+              sorted_matches[candidate_prev].score;
+          new_score > score) {
+        score = new_score;
+        prev_sorted_matches_idx = candidate_prev;
+        break;
+      }
+    }
+
+    sorted_matches[cur_sorted_matches_idx] = heads[match_idx] = {
+        .match_idx = match_idx, .score = std::max(score, 0.)};
+    predecessor[match_idx] =
+        score > 0 ? sorted_matches[prev_sorted_matches_idx].match_idx : -1;
   }
 
   std::ranges::sort(heads, std::ranges::greater{}, &ChainEntry::score);

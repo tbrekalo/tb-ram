@@ -49,11 +49,11 @@ auto CreateMatchSequenceComparator(std::span<Match> matches,
 
 auto CreateScoreCalculator(ChainConfig config, std::span<Match> matches,
                            std::uint64_t strand) {
-  return [matches, strand, w = config.kmer_length, g = config.gap](
-             const std::uint32_t prev_idx,
-             const std::uint32_t cur_idx) -> double {
+  return [matches, strand, w = config.kmer_length, g = config.gap,
+          bandwidth = config.bandwidth](const std::uint32_t prev_idx,
+                                        const std::uint32_t cur_idx) -> double {
     DCHECK(prev_idx < cur_idx);
-    auto abs_beta = [&] -> double {
+    auto beta = [&] -> double {
       if (matches[cur_idx].lhs_position() <= matches[prev_idx].lhs_position()) {
         return -(1e9 + 11);
       }
@@ -71,14 +71,16 @@ auto CreateScoreCalculator(ChainConfig config, std::span<Match> matches,
                             : calc_pos_dif(matches[cur_idx].rhs_position() + w,
                                            matches[prev_idx].rhs_position());
 
-      if (std::max(query_gap, target_gap) >= g) {
+      auto abs_diff =
+          static_cast<std::uint32_t>(std::abs(query_gap - target_gap));
+      if (std::max(query_gap, target_gap) >= g || abs_diff > bandwidth) {
         return -(1e9 + 11);
       }
 
-      return std::abs(query_gap - target_gap);
+      return abs_diff;
     }();
 
-    if (abs_beta < 0) {
+    if (beta < 0) {
       return -(1e9 + 11);
     }
 
@@ -109,8 +111,7 @@ auto CreateScoreCalculator(ChainConfig config, std::span<Match> matches,
                       w);
     }();
 
-    auto gama =
-        (abs_beta > 0 ? 0.01 * w * abs_beta + 0.5 * std::log2(abs_beta) : 0.);
+    auto gama = (beta > 0 ? 0.01 * w * beta + 0.5 * std::log2(beta) : 0.);
 
     return alpha - gama;
   };
@@ -410,9 +411,8 @@ std::vector<biosoup::Overlap> MapPairs(
   return Chain(lhs->id, MatchPairs(lhs, rhs, minimize_config), chain_config);
 }
 
-static auto FindMatchIntervals(ChainConfig config,
-                               std::span<const Match> matches)
-    -> std::vector<std::pair<std::uint64_t, std::uint64_t>> {
+static std::vector<std::pair<std::uint64_t, std::uint64_t>>
+FindMatchGroupIntervals(ChainConfig config, std::span<const Match> matches) {
   std::vector<std::pair<std::uint64_t, std::uint64_t>> intervals;
   for (std::uint64_t i = 1, j = 0; i < matches.size(); ++i) {
     if (matches[i].group - matches[j].group > config.bandwidth) {
@@ -439,6 +439,22 @@ static auto FindMatchIntervals(ChainConfig config,
                 std::uint32_t id) -> bool { return rhs_id == id; },
             &Match::rhs_id);
       }));
+
+  return intervals;
+}
+
+static std::vector<std::pair<std::uint64_t, std::uint64_t>>
+FindMatchReadIntervals(ChainConfig config, std::span<const Match> matches) {
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> intervals;
+  for (std::uint64_t i = 1, j = 0; i < matches.size(); ++i) {
+    if (matches[i].rhs_id() != matches[j].rhs_id() ||
+        matches[i].strand() != matches[j].strand()) {
+      if (i - j > config.chain) {
+        intervals.emplace_back(j, i);
+      }
+      j = i;
+    }
+  }
 
   return intervals;
 }
@@ -544,6 +560,13 @@ static std::vector<ScoredMatchSequences> CreateMatchSequences(
       break;
     }
 
+    auto unvisit = [&] {
+      for (auto chain_node = head_idx; chain_node != -1 && !visited[chain_node];
+           chain_node = predecessor[chain_node]) {
+        visited[chain_node] = 0;
+      }
+    };
+
     std::vector<std::uint64_t> chain;
     for (auto chain_node = head_idx; chain_node != -1 && !visited[chain_node];
          chain_node = predecessor[chain_node]) {
@@ -552,10 +575,11 @@ static std::vector<ScoredMatchSequences> CreateMatchSequences(
     }
 
     if (chain.size() < config.chain) {
+      unvisit();
       continue;
     }
 
-    double score = head_score;
+    double score = 0.;
     std::ranges::reverse(chain);
 
     for (auto chain_idx = 1uz; chain_idx < chain.size(); ++chain_idx) {
@@ -572,9 +596,12 @@ static std::vector<ScoredMatchSequences> CreateMatchSequences(
       score += score_fn(chain[chain_idx - 1], chain[chain_idx]);
     }
 
-    if (score >= config.min_matches) {
-      dst.push_back({.indices = std::move(chain), .score = score});
+    if (score < config.min_matches) {
+      unvisit();
+      continue;
     }
+
+    dst.push_back({.indices = std::move(chain), .score = score});
   }
 
   return dst;
@@ -601,10 +628,13 @@ static std::vector<ScoredMatchSequences> FindChainIndices(
 std::vector<MatchChain> FindChainMatches([[maybe_unused]] std::uint32_t lhs_id,
                                          std::vector<Match>&& matches,
                                          ChainConfig config) {
-  RadixSort(std::span<Match>(matches), 64, MatchGroupProjection);
+  std::ranges::sort(matches, [](const Match& a, const Match& b) -> bool {
+    return a.rhs_id() != b.rhs_id() ? a.rhs_id() < b.rhs_id()
+                                    : a.strand() < b.strand();
+  });
   matches.emplace_back(-1, -1);  // stop dummy
 
-  auto intervals = FindMatchIntervals(config, matches);
+  auto intervals = FindMatchReadIntervals(config, matches);
   std::vector<MatchChain> match_chains;
 
   for (const auto& it : intervals) {
@@ -725,7 +755,7 @@ std::vector<OverlapAI> ChainAI(std::uint32_t lhs_id,
       diffs[i] = chain_matches[i + 1uz].lhs_position() -
                  chain_matches[i].lhs_position();
     }
-    std::sort(diffs.begin(), diffs.end());
+    std::ranges::sort(diffs);
 
     const auto strand = chain_matches.front().strand();
     dst.push_back(OverlapAI{

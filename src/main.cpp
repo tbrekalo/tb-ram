@@ -19,6 +19,7 @@ enum class Mode {
   kChain,
   kMatch,
   kOverlap,
+  kOverlapLCSKpp,
   kOverlapAI,
 };
 
@@ -30,6 +31,8 @@ std::ostream& operator<<(std::ostream& ostrm, Mode mode) {
       return ostrm << "match";
     case Mode::kOverlap:
       return ostrm << "overlap";
+    case Mode::kOverlapLCSKpp:
+      return ostrm << "overlap-LCSKpp";
     case Mode::kOverlapAI:
       return ostrm << "overlap-ai";
   }
@@ -52,6 +55,11 @@ std::istream& operator>>(std::istream& istrm, Mode& mode) {
 
   if (repr == "overlap"sv) {
     mode = Mode::kOverlap;
+    return istrm;
+  }
+
+  if (repr == "overlap-LCSKpp") {
+    mode = Mode::kOverlapLCSKpp;
     return istrm;
   }
 
@@ -97,12 +105,25 @@ static const auto ExecuteBatchImpl = [](BatchContext ctx) -> void {
       return std::tuple{&ram::ChainOnIndex, std::vector<ram::MatchChain>{},
                         PrintChainBatch};
     } else if constexpr (mode == Mode::kMatch) {
-      return std::tuple{&ram::MatchToIndex, std::vector<ram::Match>{},
-                        &ram::PrintMatchBatch};
+      return std::tuple{
+          +[](std::span<const std::unique_ptr<biosoup::NucleicAcid>>,
+              const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+              std::span<const ram::Index> indices,
+              ram::MapToIndexConfig map_config,
+              ram::MinimizeConfig minimize_config,
+              ram::ChainConfig chain_config,
+              std::vector<std::uint32_t>* filtered) {
+            return ram::MatchToIndex(sequence, indices, map_config,
+                                     minimize_config, chain_config, filtered);
+          },
+          std::vector<ram::Match>{}, &ram::PrintMatchBatch};
     } else if constexpr (mode == Mode::kOverlap) {
       return std::tuple{&ram::MapToIndex, std::vector<biosoup::Overlap>{},
                         &ram::PrintOverlapBatch};
-    } else {
+    } else if constexpr (mode == Mode::kOverlapLCSKpp) {
+      return std::tuple{&ram::LCSKppToIndex, std::vector<biosoup::Overlap>{},
+                        &ram::PrintOverlapBatch};
+    } else if constexpr (mode == Mode::kOverlapAI) {
       return std::tuple{&ram::MapToIndexAI, std::vector<ram::OverlapAI>{},
                         &ram::PrintOverlapAIBatch};
     }
@@ -115,7 +136,7 @@ static const auto ExecuteBatchImpl = [](BatchContext ctx) -> void {
     futures.push_back(ctx.algo_cfg.thread_pool->Submit(
         [&](std::size_t jdx) -> void {
           values[jdx] = operation(
-              ctx.sequences[jdx], ctx.indices, ctx.map2index_cfg,
+              ctx.targets, ctx.sequences[jdx], ctx.indices, ctx.map2index_cfg,
               ctx.algo_cfg.minimize_config, ctx.algo_cfg.chain_config, nullptr);
           ctx.update_progress();
         },
@@ -139,6 +160,9 @@ static const auto ExecuteBatch = [](Mode mode, BatchContext ctx) -> void {
       break;
     case Mode::kOverlap:
       ExecuteBatchImpl<Mode::kOverlap>(ctx);
+      break;
+    case Mode::kOverlapLCSKpp:
+      ExecuteBatchImpl<Mode::kOverlapLCSKpp>(ctx);
       break;
     case Mode::kOverlapAI:
       ExecuteBatchImpl<Mode::kOverlapAI>(ctx);
@@ -284,6 +308,7 @@ int main(int argc, char** argv) {
 
     std::ios_base::sync_with_stdio(false);
     while (true) {
+      biosoup::NucleicAcid::num_objects = 0;
       std::vector<std::unique_ptr<biosoup::NucleicAcid>> targets;
       targets = tparser->Parse(target_batch_size);
       if (targets.empty()) {

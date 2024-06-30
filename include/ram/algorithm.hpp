@@ -80,46 +80,57 @@ std::vector<Match> MatchPairs(const std::unique_ptr<biosoup::NucleicAcid>& lhs,
                               const std::unique_ptr<biosoup::NucleicAcid>& rhs,
                               MinimizeConfig minimize_config);
 
-// Find overlaps between a pair of sequences.
-// Minhash argument from configuration will only be applied on the lhs sequence.
-std::vector<biosoup::Overlap> MapPairs(
-    const std::unique_ptr<biosoup::NucleicAcid>& lhs,
-    const std::unique_ptr<biosoup::NucleicAcid>& rhs,
-    MinimizeConfig minimize_config, ChainConfig chain_config);
-
 std::vector<Match> MatchToIndex(
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
     std::span<const Index> indices, MapToIndexConfig map_config,
     MinimizeConfig minimize_config, ChainConfig chain_config,
     std::vector<std::uint32_t>* filtered);
 
-std::vector<MatchChain> FindChainMatches(std::uint32_t lhs_id,
-                                         std::vector<Match>&& matches,
-                                         ChainConfig config);
+std::vector<MatchChain> FindChainMatches(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::vector<Match>&& matches, ChainConfig config);
+
+std::vector<biosoup::Overlap> ChainLCSKpp(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::vector<Match>&& matches, ChainConfig config);
 
 // Chain matches into overlaps.
-std::vector<biosoup::Overlap> Chain(std::uint32_t lhs_id,
-                                    std::vector<Match>&& matches,
-                                    ChainConfig config);
+std::vector<biosoup::Overlap> Chain(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::vector<Match>&& matches, ChainConfig config);
 
 // Chain matches into overlaps for ai worlkoad.
-std::vector<OverlapAI> ChainAI(std::uint32_t lhs_id,
-                               std::vector<Match>&& matches,
-                               ChainConfig config);
+std::vector<OverlapAI> ChainAI(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::vector<Match>&& matches, ChainConfig config);
 
 std::vector<MatchChain> ChainOnIndex(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
     std::span<const Index> indices, MapToIndexConfig map_config,
     MinimizeConfig minimize_config, ChainConfig chain_config,
     std::vector<std::uint32_t>* filtered);
 
 std::vector<biosoup::Overlap> MapToIndex(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::span<const Index> indices, MapToIndexConfig map_config,
+    MinimizeConfig minimize_config, ChainConfig chain_config,
+    std::vector<std::uint32_t>* filtered);
+
+std::vector<biosoup::Overlap> LCSKppToIndex(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
     std::span<const Index> indices, MapToIndexConfig map_config,
     MinimizeConfig minimize_config, ChainConfig chain_config,
     std::vector<std::uint32_t>* filtered);
 
 std::vector<OverlapAI> MapToIndexAI(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
     std::span<const Index> indices, MapToIndexConfig map_config,
     MinimizeConfig minimize_config, ChainConfig chain_config,

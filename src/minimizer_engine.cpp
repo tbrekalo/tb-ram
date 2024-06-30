@@ -8,6 +8,8 @@ namespace ram {
 
 struct ram::MinimizerEngine::Impl {
   AlgoConfig algo_config;
+
+  std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets;
   std::vector<Index> indices;
   std::uint32_t occurences;
 };
@@ -29,6 +31,7 @@ MinimizerEngine::MinimizerEngine(
                                                      .chain = chain,
                                                      .min_matches = matches,
                                                      .gap = gap}},
+          .targets = {},
           .indices = {},
           .occurences = 0})) {}
 
@@ -63,20 +66,9 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
       .window_length = pimpl_->algo_config.minimize_config.window_length,
       .minhash = minhash};
 
-  return MapToIndex(sequence, pimpl_->indices, map_to_index_cfg, minimize_cfg,
+  return MapToIndex(pimpl_->targets, sequence, pimpl_->indices,
+                    map_to_index_cfg, minimize_cfg,
                     pimpl_->algo_config.chain_config, filtered);
-}
-
-std::vector<biosoup::Overlap> MinimizerEngine::Map(
-    const std::unique_ptr<biosoup::NucleicAcid>& lhs,
-    const std::unique_ptr<biosoup::NucleicAcid>& rhs, bool minhash) const {
-  return MapPairs(
-      lhs, rhs,
-      MinimizeConfig{
-          .kmer_length = pimpl_->algo_config.minimize_config.kmer_length,
-          .window_length = pimpl_->algo_config.minimize_config.window_length,
-          .minhash = minhash},
-      pimpl_->algo_config.chain_config);
 }
 
 }  // namespace ram

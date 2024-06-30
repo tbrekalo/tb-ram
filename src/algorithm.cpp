@@ -6,6 +6,7 @@
 
 #include "biosoup/nucleic_acid.hpp"
 #include "glog/logging.h"
+#include "ram/lcskpp.hpp"
 
 namespace ram {
 
@@ -47,8 +48,8 @@ auto CreateMatchSequenceComparator(std::span<Match> matches,
   };
 }
 
-auto CreateScoreCalculator(ChainConfig config, std::span<Match> matches,
-                           std::uint64_t strand) {
+auto CreateMinimap2Scorer(ChainConfig config, std::span<Match> matches,
+                          std::uint64_t strand) {
   return [matches, strand, w = config.kmer_length, g = config.gap,
           bandwidth = config.bandwidth](const std::uint32_t prev_idx,
                                         const std::uint32_t cur_idx) -> double {
@@ -117,302 +118,42 @@ auto CreateScoreCalculator(ChainConfig config, std::span<Match> matches,
   };
 }
 
-}  // namespace
+struct LCSKppResult {
+  int score;
+  std::vector<std::pair<int, int>> positions;
+};
 
-std::vector<Kmer> Minimize(
-    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
-    MinimizeConfig config) {
-  if (sequence->inflated_len < config.kmer_length) {
-    return std::vector<Kmer>{};
-  }
+auto CreateLCSKppScorer(ChainConfig config,
+                        const std::unique_ptr<biosoup::NucleicAcid>& target,
+                        const std::unique_ptr<biosoup::NucleicAcid>& query,
+                        std::uint64_t strand) {
+  return [target = target.get(), query = query.get(), strand,
+          k = config.kmer_length](std::uint32_t query_first,
+                                  std::uint32_t query_last,
+                                  std::uint32_t target_first,
+                                  std::uint32_t target_last) -> LCSKppResult {
+    auto target_str = [&] -> std::string {
+      auto dst = target->InflateData(target_first, target_last - target_first);
+      if (!strand) {
+        auto tmp = biosoup::NucleicAcid("", dst);
+        tmp.ReverseAndComplement();
 
-  std::uint64_t mask = (1ULL << (config.kmer_length * 2)) - 1;
+        dst = tmp.InflateData();
+      }
 
-  auto hash = [&](std::uint64_t key) -> std::uint64_t {
-    key = ((~key) + (key << 21)) & mask;
-    key = key ^ (key >> 24);
-    key = ((key + (key << 3)) + (key << 8)) & mask;
-    key = key ^ (key >> 14);
-    key = ((key + (key << 2)) + (key << 4)) & mask;
-    key = key ^ (key >> 28);
-    key = (key + (key << 31)) & mask;
-    return key;
+      return dst;
+    }();
+    auto query_str = query->InflateData(query_first, query_last - query_first);
+
+    std::vector<std::pair<int, int>> positions;
+    auto score = lcskpp(query_str, target_str, k, &positions);
+
+    return {.score = score, .positions = std::move(positions)};
   };
-
-  std::deque<Kmer> window;
-  auto window_add = [&](std::uint64_t value, std::uint64_t location) -> void {
-    while (!window.empty() && window.back().value > value) {
-      window.pop_back();
-    }
-    window.emplace_back(value, location);
-  };
-  auto window_update = [&](std::uint32_t position) -> void {
-    while (!window.empty() && (window.front().position()) < position) {
-      window.pop_front();
-    }
-  };
-
-  std::uint64_t shift = (config.kmer_length - 1) * 2;
-  std::uint64_t minimizer = 0;
-  std::uint64_t reverse_minimizer = 0;
-  std::uint64_t id = static_cast<std::uint64_t>(sequence->id) << 32;
-  std::uint64_t is_stored = 1ULL << 63;
-
-  std::vector<Kmer> dst;
-
-  for (std::uint32_t i = 0; i < sequence->inflated_len; ++i) {
-    std::uint64_t c = sequence->Code(i);
-    minimizer = ((minimizer << 2) | c) & mask;
-    reverse_minimizer = (reverse_minimizer >> 2) | ((c ^ 3) << shift);
-    if (i >= config.kmer_length - 1U) {
-      if (minimizer < reverse_minimizer) {
-        window_add(hash(minimizer), (i - (config.kmer_length - 1U)) << 1 | 0);
-      } else if (minimizer > reverse_minimizer) {
-        window_add(hash(reverse_minimizer),
-                   (i - (config.kmer_length - 1U)) << 1 | 1);
-      }
-    }
-    if (i >= (config.kmer_length - 1U) + (config.window_length - 1U)) {
-      for (auto it = window.begin(); it != window.end(); ++it) {
-        if (it->value != window.front().value) {
-          break;
-        }
-        if (it->origin & is_stored) {
-          continue;
-        }
-        dst.emplace_back(it->value, id | it->origin);
-        it->origin |= is_stored;
-      }
-      window_update(i - (config.kmer_length - 1U) -
-                    (config.window_length - 1U) + 1);
-    }
-  }
-
-  if (config.minhash) {
-    RadixSort(std::span<Kmer>(dst), config.kmer_length * 2,
-              KmerValueProjection);
-    dst.resize(sequence->inflated_len / config.kmer_length);
-    RadixSort(std::span<Kmer>(dst), 64, KmerOriginProjection);
-  }
-
-  return dst;
 }
 
-std::vector<Index> ConstructIndices(
-    std::span<const std::unique_ptr<biosoup::NucleicAcid>> sequences,
-    MinimizeConfig minimize_config,
-    std::shared_ptr<thread_pool::ThreadPool> thread_pool) {
-  std::vector<Index> indices(
-      1uz << std::min(14uz, 2uz * minimize_config.kmer_length));
-  if (sequences.empty()) {
-    return indices;
-  }
-
-  std::vector<std::vector<Kmer>> minimizers(indices.size());
-  {
-    std::uint64_t mask = indices.size() - 1;
-    std::vector<std::vector<Kmer>> buffer;
-    for (auto idx = 0uz; idx != sequences.size();) {
-      const auto batch_first_idx = idx;
-      idx = [sequences](std::size_t start_idx) {
-        auto curr_idx = start_idx;
-        for (auto batch_size = 0uz;
-             curr_idx < sequences.size() && batch_size < 5'0000'000uz;
-             ++curr_idx) {
-          batch_size += sequences[curr_idx]->inflated_len;
-        }
-        return curr_idx;
-      }(idx);
-
-      buffer.resize(idx - batch_first_idx);
-      std::vector<std::future<void>> futures;
-      for (auto i = batch_first_idx; i < idx; ++i) {
-        futures.push_back(thread_pool->Submit(
-            [&sequences, &minimize_config, &buffer,
-             batch_first_idx](std::size_t minimize_idx) -> void {
-              buffer[minimize_idx - batch_first_idx] =
-                  Minimize(sequences[minimize_idx], minimize_config);
-            },
-            i));
-      }
-
-      for (auto& future : futures) {
-        future.wait();
-      }
-
-      for (auto& kmers : buffer) {
-        for (auto kmer : kmers) {
-          auto& m = minimizers[kmer.value & mask];
-          if (m.capacity() == m.size()) {
-            m.reserve(m.capacity() * 1.5);
-          }
-          m.push_back(kmer);
-        }
-
-        std::vector<Kmer>{}.swap(kmers);
-      }
-    }
-  }
-
-  {
-    std::vector<std::future<std::pair<std::size_t, std::size_t>>> futures;
-    for (std::uint32_t i = 0; i < minimizers.size(); ++i) {
-      futures.emplace_back(thread_pool->Submit(
-          [&](std::uint32_t i) -> std::pair<std::size_t, std::size_t> {
-            if (minimizers[i].empty()) {
-              return std::make_pair(0, 0);
-            }
-
-            RadixSort<Kmer>(std::span<Kmer>(minimizers[i]),
-                            minimize_config.kmer_length * 2,
-                            KmerValueProjection);
-
-            minimizers[i].emplace_back(-1, -1);  // stop dummy
-
-            std::size_t num_origins = 0;
-            std::size_t num_keys = 0;
-
-            for (std::uint64_t j = 1, c = 1; j < minimizers[i].size();
-                 ++j, ++c) {
-              if (minimizers[i][j - 1].value != minimizers[i][j].value) {
-                if (c > 1) {
-                  num_origins += c;
-                }
-                ++num_keys;
-                c = 0;
-              }
-            }
-
-            return std::make_pair(num_origins, num_keys);
-          },
-          i));
-    }
-    for (std::uint32_t i = 0; i < minimizers.size(); ++i) {
-      if (minimizers[i].empty()) {
-        continue;
-      }
-
-      auto [num_origins, num_keys] = futures[i].get();
-      indices[i].origins.reserve(num_origins);
-      indices[i].locator.reserve(num_keys);
-
-      for (std::uint64_t j = 1, c = 1; j < minimizers[i].size(); ++j, ++c) {
-        if (minimizers[i][j - 1].value != minimizers[i][j].value) {
-          if (c == 1) {
-            indices[i].locator.emplace(minimizers[i][j - 1].value << 1 | 1,
-                                       minimizers[i][j - 1].origin);
-          } else {
-            indices[i].locator.emplace(minimizers[i][j - 1].value << 1,
-                                       indices[i].origins.size() << 32 | c);
-            for (std::uint64_t k = j - c; k < j; ++k) {
-              indices[i].origins.emplace_back(minimizers[i][k].origin);
-            }
-          }
-          c = 0;
-        }
-      }
-
-      std::vector<Kmer>().swap(minimizers[i]);
-    }
-  }
-
-  return indices;
-}
-
-std::uint32_t CalculateKmerThreshold(std::vector<Index> indices,
-                                     double frequency) {
-  if (!(0 <= frequency && frequency <= 1)) {
-    throw std::invalid_argument(
-        "[ram::MinimizerEngine::Filter] error: invalid frequency");
-  }
-
-  if (frequency == 0) {
-    return -1;
-  }
-
-  std::vector<std::uint32_t> occurrences;
-  for (const auto& it : indices) {
-    for (const auto& jt : it.locator) {
-      if (jt.first & 1) {
-        occurrences.emplace_back(1);
-      } else {
-        occurrences.emplace_back(static_cast<std::uint32_t>(jt.second));
-      }
-    }
-  }
-
-  if (occurrences.empty()) {
-    return -1;
-  }
-
-  std::nth_element(occurrences.begin(),
-                   occurrences.begin() + (1 - frequency) * occurrences.size(),
-                   occurrences.end());
-  return occurrences[(1 - frequency) * occurrences.size()] + 1;
-}
-
-std::vector<Match> MatchPairs(const std::unique_ptr<biosoup::NucleicAcid>& lhs,
-                              const std::unique_ptr<biosoup::NucleicAcid>& rhs,
-                              MinimizeConfig minimize_config) {
-  auto lhs_sketch = Minimize(lhs, minimize_config);
-  if (lhs_sketch.empty()) {
-    return std::vector<Match>{};
-  }
-
-  auto rhs_sketch = Minimize(
-      rhs, MinimizeConfig{.kmer_length = minimize_config.kmer_length,
-                          .window_length = minimize_config.window_length});
-  if (rhs_sketch.empty()) {
-    return std::vector<Match>{};
-  }
-
-  RadixSort(std::span<Kmer>(lhs_sketch), minimize_config.kmer_length * 2,
-            KmerValueProjection);
-  RadixSort(std::span<Kmer>(rhs_sketch), minimize_config.kmer_length * 2,
-            KmerValueProjection);
-
-  std::uint64_t rhs_id = rhs->id;
-
-  std::vector<Match> matches;
-  for (std::uint32_t i = 0, j = 0; i < lhs_sketch.size(); ++i) {
-    while (j < rhs_sketch.size()) {
-      if (lhs_sketch[i].value < rhs_sketch[j].value) {
-        break;
-      } else if (lhs_sketch[i].value == rhs_sketch[j].value) {
-        for (std::uint32_t k = j; k < rhs_sketch.size(); ++k) {
-          if (lhs_sketch[i].value != rhs_sketch[k].value) {
-            break;
-          }
-
-          std::uint64_t strand =
-              (lhs_sketch[i].strand() & 1) == (rhs_sketch[k].strand() & 1);
-          std::uint64_t lhs_pos = lhs_sketch[i].position();
-          std::uint64_t rhs_pos = rhs_sketch[k].position();
-          std::uint64_t diagonal =
-              !strand ? rhs_pos + lhs_pos : rhs_pos - lhs_pos + (3ULL << 30);
-
-          matches.emplace_back((((rhs_id << 1) | strand) << 32) | diagonal,
-                               (lhs_pos << 32) | rhs_pos);
-        }
-        break;
-      } else {
-        ++j;
-      }
-    }
-  }
-
-  return matches;
-}
-
-std::vector<biosoup::Overlap> MapPairs(
-    const std::unique_ptr<biosoup::NucleicAcid>& lhs,
-    const std::unique_ptr<biosoup::NucleicAcid>& rhs,
-    MinimizeConfig minimize_config, ChainConfig chain_config) {
-  return Chain(lhs->id, MatchPairs(lhs, rhs, minimize_config), chain_config);
-}
-
-static std::vector<std::pair<std::uint64_t, std::uint64_t>>
-FindMatchGroupIntervals(ChainConfig config, std::span<const Match> matches) {
+std::vector<std::pair<std::uint64_t, std::uint64_t>> FindMatchGroupIntervals(
+    ChainConfig config, std::span<const Match> matches) {
   std::vector<std::pair<std::uint64_t, std::uint64_t>> intervals;
   for (std::uint64_t i = 1, j = 0; i < matches.size(); ++i) {
     if (matches[i].group - matches[j].group > config.bandwidth) {
@@ -443,8 +184,8 @@ FindMatchGroupIntervals(ChainConfig config, std::span<const Match> matches) {
   return intervals;
 }
 
-static std::vector<std::pair<std::uint64_t, std::uint64_t>>
-FindMatchReadIntervals(ChainConfig config, std::span<const Match> matches) {
+std::vector<std::pair<std::uint64_t, std::uint64_t>> FindMatchReadIntervals(
+    ChainConfig config, std::span<const Match> matches) {
   std::vector<std::pair<std::uint64_t, std::uint64_t>> intervals;
   for (std::uint64_t i = 1, j = 0; i < matches.size(); ++i) {
     if (matches[i].rhs_id() != matches[j].rhs_id() ||
@@ -459,8 +200,9 @@ FindMatchReadIntervals(ChainConfig config, std::span<const Match> matches) {
   return intervals;
 }
 
-static std::vector<ScoredMatchSequences> CreateMatchSequences(
-    ChainConfig config, std::span<Match> matches, std::uint64_t strand) {
+std::vector<ScoredMatchSequences> CreateMatchSequences(ChainConfig config,
+                                                       std::span<Match> matches,
+                                                       std::uint64_t strand) {
   DCHECK(matches.empty());
   DCHECK(std::ranges::all_of(
       matches,
@@ -468,13 +210,15 @@ static std::vector<ScoredMatchSequences> CreateMatchSequences(
         return rhs_id == id;
       },
       &Match::rhs_id));
+  DCHECK(std::ranges::is_sorted(matches, std::less<>{}, &Match::lhs_position));
+
   std::vector<ScoredMatchSequences> dst;
 
   std::vector<std::int64_t> predecessor(matches.size(), -1);
   std::vector<ChainEntry> heads(matches.size());
   std::vector<ChainEntry> sorted_matches;
 
-  auto score_fn = CreateScoreCalculator(config, matches, strand);
+  auto score_fn = CreateMinimap2Scorer(config, matches, strand);
   auto cmp_fn = CreateMatchSequenceComparator(matches, strand);
   auto assert_prev_idx = [strand, matches, &sorted_matches](
                              std::int64_t sorted_matches_idx,
@@ -607,9 +351,11 @@ static std::vector<ScoredMatchSequences> CreateMatchSequences(
   return dst;
 }
 
-static std::vector<ScoredMatchSequences> FindChainIndices(
-    ChainConfig config, std::span<Match> matches, std::uint64_t lhs_idx,
-    std::uint64_t rhs_idx, std::uint64_t strand) {
+std::vector<ScoredMatchSequences> FindChainIndices(ChainConfig config,
+                                                   std::span<Match> matches,
+                                                   std::uint64_t lhs_idx,
+                                                   std::uint64_t rhs_idx,
+                                                   std::uint64_t strand) {
   auto match_sequence = CreateMatchSequences(
       config, std::span(matches.begin() + lhs_idx, matches.begin() + rhs_idx),
       strand);
@@ -625,9 +371,348 @@ static std::vector<ScoredMatchSequences> FindChainIndices(
   return match_sequence;
 }
 
-std::vector<MatchChain> FindChainMatches([[maybe_unused]] std::uint32_t lhs_id,
-                                         std::vector<Match>&& matches,
-                                         ChainConfig config) {
+}  // namespace
+
+std::vector<Index> ConstructIndices(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> sequences,
+    MinimizeConfig minimize_config,
+    std::shared_ptr<thread_pool::ThreadPool> thread_pool) {
+  std::vector<Index> indices(
+      1uz << std::min(14uz, 2uz * minimize_config.kmer_length));
+  if (sequences.empty()) {
+    return indices;
+  }
+
+  std::vector<std::vector<Kmer>> minimizers(indices.size());
+  {
+    std::uint64_t mask = indices.size() - 1;
+    std::vector<std::vector<Kmer>> buffer;
+    for (auto idx = 0uz; idx != sequences.size();) {
+      const auto batch_first_idx = idx;
+      idx = [sequences](std::size_t start_idx) {
+        auto curr_idx = start_idx;
+        for (auto batch_size = 0uz;
+             curr_idx < sequences.size() && batch_size < 5'0000'000uz;
+             ++curr_idx) {
+          batch_size += sequences[curr_idx]->inflated_len;
+        }
+        return curr_idx;
+      }(idx);
+
+      buffer.resize(idx - batch_first_idx);
+      std::vector<std::future<void>> futures;
+      for (auto i = batch_first_idx; i < idx; ++i) {
+        futures.push_back(thread_pool->Submit(
+            [&sequences, &minimize_config, &buffer,
+             batch_first_idx](std::size_t minimize_idx) -> void {
+              buffer[minimize_idx - batch_first_idx] =
+                  Minimize(sequences[minimize_idx], minimize_config);
+            },
+            i));
+      }
+
+      for (auto& future : futures) {
+        future.wait();
+      }
+
+      for (auto& kmers : buffer) {
+        for (auto kmer : kmers) {
+          auto& m = minimizers[kmer.value & mask];
+          if (m.capacity() == m.size()) {
+            m.reserve(m.capacity() * 1.5);
+          }
+          m.push_back(kmer);
+        }
+
+        std::vector<Kmer>{}.swap(kmers);
+      }
+    }
+  }
+
+  {
+    std::vector<std::future<std::pair<std::size_t, std::size_t>>> futures;
+    for (std::uint32_t i = 0; i < minimizers.size(); ++i) {
+      futures.emplace_back(thread_pool->Submit(
+          [&](std::uint32_t i) -> std::pair<std::size_t, std::size_t> {
+            if (minimizers[i].empty()) {
+              return std::make_pair(0, 0);
+            }
+
+            RadixSort<Kmer>(std::span<Kmer>(minimizers[i]),
+                            minimize_config.kmer_length * 2,
+                            KmerValueProjection);
+
+            minimizers[i].emplace_back(-1, -1);  // stop dummy
+
+            std::size_t num_origins = 0;
+            std::size_t num_keys = 0;
+
+            for (std::uint64_t j = 1, c = 1; j < minimizers[i].size();
+                 ++j, ++c) {
+              if (minimizers[i][j - 1].value != minimizers[i][j].value) {
+                if (c > 1) {
+                  num_origins += c;
+                }
+                ++num_keys;
+                c = 0;
+              }
+            }
+
+            return std::make_pair(num_origins, num_keys);
+          },
+          i));
+    }
+    for (std::uint32_t i = 0; i < minimizers.size(); ++i) {
+      if (minimizers[i].empty()) {
+        continue;
+      }
+
+      auto [num_origins, num_keys] = futures[i].get();
+      indices[i].origins.reserve(num_origins);
+      indices[i].locator.reserve(num_keys);
+
+      for (std::uint64_t j = 1, c = 1; j < minimizers[i].size(); ++j, ++c) {
+        if (minimizers[i][j - 1].value != minimizers[i][j].value) {
+          if (c == 1) {
+            indices[i].locator.emplace(minimizers[i][j - 1].value << 1 | 1,
+                                       minimizers[i][j - 1].origin);
+          } else {
+            indices[i].locator.emplace(minimizers[i][j - 1].value << 1,
+                                       indices[i].origins.size() << 32 | c);
+            for (std::uint64_t k = j - c; k < j; ++k) {
+              indices[i].origins.emplace_back(minimizers[i][k].origin);
+            }
+          }
+          c = 0;
+        }
+      }
+
+      std::vector<Kmer>().swap(minimizers[i]);
+    }
+  }
+
+  return indices;
+}
+
+std::vector<Match> MatchPairs(const std::unique_ptr<biosoup::NucleicAcid>& lhs,
+                              const std::unique_ptr<biosoup::NucleicAcid>& rhs,
+                              MinimizeConfig minimize_config) {
+  auto lhs_sketch = Minimize(lhs, minimize_config);
+  if (lhs_sketch.empty()) {
+    return std::vector<Match>{};
+  }
+
+  auto rhs_sketch = Minimize(
+      rhs, MinimizeConfig{.kmer_length = minimize_config.kmer_length,
+                          .window_length = minimize_config.window_length});
+  if (rhs_sketch.empty()) {
+    return std::vector<Match>{};
+  }
+
+  RadixSort(std::span<Kmer>(lhs_sketch), minimize_config.kmer_length * 2,
+            KmerValueProjection);
+  RadixSort(std::span<Kmer>(rhs_sketch), minimize_config.kmer_length * 2,
+            KmerValueProjection);
+
+  std::uint64_t rhs_id = rhs->id;
+
+  std::vector<Match> matches;
+  for (std::uint32_t i = 0, j = 0; i < lhs_sketch.size(); ++i) {
+    while (j < rhs_sketch.size()) {
+      if (lhs_sketch[i].value < rhs_sketch[j].value) {
+        break;
+      } else if (lhs_sketch[i].value == rhs_sketch[j].value) {
+        for (std::uint32_t k = j; k < rhs_sketch.size(); ++k) {
+          if (lhs_sketch[i].value != rhs_sketch[k].value) {
+            break;
+          }
+
+          std::uint64_t strand =
+              (lhs_sketch[i].strand() & 1) == (rhs_sketch[k].strand() & 1);
+          std::uint64_t lhs_pos = lhs_sketch[i].position();
+          std::uint64_t rhs_pos = rhs_sketch[k].position();
+          std::uint64_t diagonal =
+              !strand ? rhs_pos + lhs_pos : rhs_pos - lhs_pos + (3ULL << 30);
+
+          matches.emplace_back((((rhs_id << 1) | strand) << 32) | diagonal,
+                               (lhs_pos << 32) | rhs_pos);
+        }
+        break;
+      } else {
+        ++j;
+      }
+    }
+  }
+
+  return matches;
+}
+
+std::uint32_t CalculateKmerThreshold(std::vector<Index> indices,
+                                     double frequency) {
+  if (!(0 <= frequency && frequency <= 1)) {
+    throw std::invalid_argument(
+        "[ram::MinimizerEngine::Filter] error: invalid frequency");
+  }
+
+  if (frequency == 0) {
+    return -1;
+  }
+
+  std::vector<std::uint32_t> occurrences;
+  for (const auto& it : indices) {
+    for (const auto& jt : it.locator) {
+      if (jt.first & 1) {
+        occurrences.emplace_back(1);
+      } else {
+        occurrences.emplace_back(static_cast<std::uint32_t>(jt.second));
+      }
+    }
+  }
+
+  if (occurrences.empty()) {
+    return -1;
+  }
+
+  std::nth_element(occurrences.begin(),
+                   occurrences.begin() + (1 - frequency) * occurrences.size(),
+                   occurrences.end());
+  return occurrences[(1 - frequency) * occurrences.size()] + 1;
+}
+
+std::vector<Kmer> Minimize(
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    MinimizeConfig config) {
+  if (sequence->inflated_len < config.kmer_length) {
+    return std::vector<Kmer>{};
+  }
+
+  std::uint64_t mask = (1ULL << (config.kmer_length * 2)) - 1;
+
+  auto hash = [&](std::uint64_t key) -> std::uint64_t {
+    key = ((~key) + (key << 21)) & mask;
+    key = key ^ (key >> 24);
+    key = ((key + (key << 3)) + (key << 8)) & mask;
+    key = key ^ (key >> 14);
+    key = ((key + (key << 2)) + (key << 4)) & mask;
+    key = key ^ (key >> 28);
+    key = (key + (key << 31)) & mask;
+    return key;
+  };
+
+  std::deque<Kmer> window;
+  auto window_add = [&](std::uint64_t value, std::uint64_t location) -> void {
+    while (!window.empty() && window.back().value > value) {
+      window.pop_back();
+    }
+    window.emplace_back(value, location);
+  };
+  auto window_update = [&](std::uint32_t position) -> void {
+    while (!window.empty() && (window.front().position()) < position) {
+      window.pop_front();
+    }
+  };
+
+  std::uint64_t shift = (config.kmer_length - 1) * 2;
+  std::uint64_t minimizer = 0;
+  std::uint64_t reverse_minimizer = 0;
+  std::uint64_t id = static_cast<std::uint64_t>(sequence->id) << 32;
+  std::uint64_t is_stored = 1ULL << 63;
+
+  std::vector<Kmer> dst;
+
+  for (std::uint32_t i = 0; i < sequence->inflated_len; ++i) {
+    std::uint64_t c = sequence->Code(i);
+    minimizer = ((minimizer << 2) | c) & mask;
+    reverse_minimizer = (reverse_minimizer >> 2) | ((c ^ 3) << shift);
+    if (i >= config.kmer_length - 1U) {
+      if (minimizer < reverse_minimizer) {
+        window_add(hash(minimizer), (i - (config.kmer_length - 1U)) << 1 | 0);
+      } else if (minimizer > reverse_minimizer) {
+        window_add(hash(reverse_minimizer),
+                   (i - (config.kmer_length - 1U)) << 1 | 1);
+      }
+    }
+    if (i >= (config.kmer_length - 1U) + (config.window_length - 1U)) {
+      for (auto it = window.begin(); it != window.end(); ++it) {
+        if (it->value != window.front().value) {
+          break;
+        }
+        if (it->origin & is_stored) {
+          continue;
+        }
+        dst.emplace_back(it->value, id | it->origin);
+        it->origin |= is_stored;
+      }
+      window_update(i - (config.kmer_length - 1U) -
+                    (config.window_length - 1U) + 1);
+    }
+  }
+
+  if (config.minhash) {
+    RadixSort(std::span<Kmer>(dst), config.kmer_length * 2,
+              KmerValueProjection);
+    dst.resize(sequence->inflated_len / config.kmer_length);
+    RadixSort(std::span<Kmer>(dst), 64, KmerOriginProjection);
+  }
+
+  return dst;
+}
+
+std::vector<biosoup::Overlap> ChainLCSKpp(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::vector<Match>&& matches, ChainConfig config) {
+  std::ranges::sort(matches, [](const Match& a, const Match& b) -> bool {
+    return a.rhs_id() != b.rhs_id() ? a.rhs_id() < b.rhs_id()
+                                    : a.strand() < b.strand();
+  });
+  matches.emplace_back(-1, -1);  // stop dummy
+  auto intervals = FindMatchGroupIntervals(config, matches);
+
+  std::vector<biosoup::Overlap> dst;
+  for (const auto& it : intervals) {
+    std::uint64_t lhs_idx = it.first;
+    std::uint64_t rhs_idx = it.second;
+
+    auto strand = matches[lhs_idx].strand();
+    auto target = targets[matches[lhs_idx].rhs_id()].get();
+    auto query_minmax = std::ranges::minmax_element(
+        std::span(matches.begin() + lhs_idx, matches.begin() + rhs_idx),
+        std::less<>{}, &Match::lhs_position);
+    auto query_first = query_minmax.min->lhs_position();
+    auto query_last = query_minmax.max->lhs_position();
+
+    auto target_minmax = std::ranges::minmax_element(
+        std::span(matches.begin() + lhs_idx, matches.begin() + rhs_idx),
+        std::less<>{}, &Match::rhs_position);
+    auto target_first = target_minmax.min->rhs_position();
+    auto target_last = target_minmax.max->rhs_position();
+
+    auto [score, positions] = CreateLCSKppScorer(
+        config, targets[matches[lhs_idx].rhs_id()], sequence, strand)(
+        query_first, query_last, target_first, target_last);
+
+    if (score == 0 || positions.empty()) {
+      continue;
+    }
+
+    dst.emplace_back(
+        sequence->id, query_first + positions.front().first,
+        query_first + positions.back().first, target->id,
+        target_first + (strand ? positions.front().second
+                               : target_last - positions.front().second),
+        target_first + (strand ? positions.back().second
+                               : target_last - positions.back().second),
+        score, strand);
+  }
+
+  return dst;
+}
+
+std::vector<MatchChain> FindChainMatches(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::vector<Match>&& matches, ChainConfig config) {
   std::ranges::sort(matches, [](const Match& a, const Match& b) -> bool {
     return a.rhs_id() != b.rhs_id() ? a.rhs_id() < b.rhs_id()
                                     : a.strand() < b.strand();
@@ -739,13 +824,14 @@ std::vector<MatchChain> FindChainMatches([[maybe_unused]] std::uint32_t lhs_id,
   return match_chains;
 }
 
-std::vector<OverlapAI> ChainAI(std::uint32_t lhs_id,
-                               std::vector<Match>&& matches,
-                               ChainConfig config) {
+std::vector<OverlapAI> ChainAI(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::vector<Match>&& matches, ChainConfig config) {
   std::vector<OverlapAI> dst;
   std::vector<std::uint32_t> diffs;
   for (const auto& [chain_matches, lhs_matches, rhs_matches, score] :
-       FindChainMatches(lhs_id, std::move(matches), config)) {
+       FindChainMatches(targets, sequence, std::move(matches), config)) {
     if (chain_matches.empty()) {
       continue;
     }
@@ -759,7 +845,7 @@ std::vector<OverlapAI> ChainAI(std::uint32_t lhs_id,
 
     const auto strand = chain_matches.front().strand();
     dst.push_back(OverlapAI{
-        .lhs_id = lhs_id,
+        .lhs_id = sequence->id,
         .lhs_begin = chain_matches.front().lhs_position(),
         .lhs_end = config.kmer_length + chain_matches.back().lhs_position(),
         .lhs_matches = lhs_matches,
@@ -792,18 +878,20 @@ std::vector<OverlapAI> ChainAI(std::uint32_t lhs_id,
   return dst;
 }
 
-std::vector<biosoup::Overlap> Chain(std::uint32_t lhs_id,
-                                    std::vector<Match>&& matches,
-                                    ChainConfig config) {
+std::vector<biosoup::Overlap> Chain(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::vector<Match>&& matches, ChainConfig config) {
   std::vector<biosoup::Overlap> dst;
-  for (const auto& jt : FindChainMatches(lhs_id, std::move(matches), config)) {
+  for (const auto& jt :
+       FindChainMatches(targets, sequence, std::move(matches), config)) {
     if (jt.matches.empty()) {
       continue;
     }
 
     const auto strand = jt.matches.front().strand();
     dst.emplace_back(
-        lhs_id, jt.matches.front().lhs_position(),
+        sequence->id, jt.matches.front().lhs_position(),
         config.kmer_length + jt.matches.back().lhs_position(),
         jt.matches.front().rhs_id(),
         strand ? jt.matches.front().rhs_position()
@@ -909,33 +997,48 @@ std::vector<Match> MatchToIndex(
 }
 
 std::vector<MatchChain> ChainOnIndex(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
     std::span<const Index> indices, MapToIndexConfig map_config,
     MinimizeConfig minimize_config, ChainConfig chain_config,
     std::vector<std::uint32_t>* filtered) {
-  return FindChainMatches(sequence->id,
+  return FindChainMatches(targets, sequence,
                           MatchToIndex(sequence, indices, map_config,
                                        minimize_config, chain_config, filtered),
                           chain_config);
 }
 
 std::vector<biosoup::Overlap> MapToIndex(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
     std::span<const Index> indices, MapToIndexConfig map_config,
     MinimizeConfig minimize_config, ChainConfig chain_config,
     std::vector<std::uint32_t>* filtered) {
-  return Chain(sequence->id,
+  return Chain(targets, sequence,
                MatchToIndex(sequence, indices, map_config, minimize_config,
                             chain_config, filtered),
                chain_config);
 }
 
-std::vector<OverlapAI> MapToIndexAI(
+std::vector<biosoup::Overlap> LCSKppToIndex(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
     std::span<const Index> indices, MapToIndexConfig map_config,
     MinimizeConfig minimize_config, ChainConfig chain_config,
     std::vector<std::uint32_t>* filtered) {
-  return ChainAI(sequence->id,
+  return ChainLCSKpp(targets, sequence,
+                     MatchToIndex(sequence, indices, map_config,
+                                  minimize_config, chain_config, filtered),
+                     chain_config);
+}
+
+std::vector<OverlapAI> MapToIndexAI(
+    std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
+    const std::unique_ptr<biosoup::NucleicAcid>& sequence,
+    std::span<const Index> indices, MapToIndexConfig map_config,
+    MinimizeConfig minimize_config, ChainConfig chain_config,
+    std::vector<std::uint32_t>* filtered) {
+  return ChainAI(targets, sequence,
                  MatchToIndex(sequence, indices, map_config, minimize_config,
                               chain_config, filtered),
                  chain_config);

@@ -118,11 +118,6 @@ auto CreateMinimap2Scorer(ChainConfig config, std::span<Match> matches,
   };
 }
 
-struct LCSKppResult {
-  int score;
-  std::vector<std::pair<int, int>> positions;
-};
-
 auto CreateLCSKppScorer(ChainConfig config,
                         const std::unique_ptr<biosoup::NucleicAcid>& target,
                         const std::unique_ptr<biosoup::NucleicAcid>& query,
@@ -145,10 +140,7 @@ auto CreateLCSKppScorer(ChainConfig config,
     }();
     auto query_str = query->InflateData(query_first, query_last - query_first);
 
-    std::vector<std::pair<int, int>> positions;
-    auto score = lcskpp(query_str, target_str, k, &positions);
-
-    return {.score = score, .positions = std::move(positions)};
+    return lcskpp(query_str, target_str, k);
   };
 }
 
@@ -176,9 +168,10 @@ std::vector<std::pair<std::uint64_t, std::uint64_t>> FindMatchGroupIntervals(
       [matches](std::pair<std::int64_t, std::int64_t> interval) -> bool {
         return std::ranges::all_of(
             matches.subspan(interval.first, interval.second - interval.first),
-            [rhs_id = matches[interval.first].rhs_id()](
-                std::uint32_t id) -> bool { return rhs_id == id; },
-            &Match::rhs_id);
+            [rhs_id = matches[interval.first].rhs_id(),
+             strand = matches[interval.first].strand()](Match m) -> bool {
+              return m.rhs_id() == rhs_id && m.strand() == strand;
+            });
       }));
 
   return intervals;
@@ -188,7 +181,7 @@ std::vector<std::pair<std::uint64_t, std::uint64_t>> FindMatchReadIntervals(
     ChainConfig config, std::span<const Match> matches) {
   std::vector<std::pair<std::uint64_t, std::uint64_t>> intervals;
   for (std::uint64_t i = 1, j = 0; i < matches.size(); ++i) {
-    if (matches[i].rhs_id() != matches[j].rhs_id() ||
+    if (j == matches.size() || matches[i].rhs_id() != matches[j].rhs_id() ||
         matches[i].strand() != matches[j].strand()) {
       if (i - j > config.chain) {
         intervals.emplace_back(j, i);
@@ -662,48 +655,74 @@ std::vector<biosoup::Overlap> ChainLCSKpp(
     std::span<const std::unique_ptr<biosoup::NucleicAcid>> targets,
     const std::unique_ptr<biosoup::NucleicAcid>& sequence,
     std::vector<Match>&& matches, ChainConfig config) {
-  std::ranges::sort(matches, [](const Match& a, const Match& b) -> bool {
-    return a.rhs_id() != b.rhs_id() ? a.rhs_id() < b.rhs_id()
-                                    : a.strand() < b.strand();
-  });
+  RadixSort(std::span(matches), 64, MatchGroupProjection);
   matches.emplace_back(-1, -1);  // stop dummy
   auto intervals = FindMatchGroupIntervals(config, matches);
 
   std::vector<biosoup::Overlap> dst;
   for (const auto& it : intervals) {
-    std::uint64_t lhs_idx = it.first;
-    std::uint64_t rhs_idx = it.second;
+    std::uint64_t first_idx = it.first;
+    std::uint64_t last_idx = it.second;
 
-    auto strand = matches[lhs_idx].strand();
-    auto target = targets[matches[lhs_idx].rhs_id()].get();
+    auto strand = matches[first_idx].strand();
+    auto target = targets[matches[first_idx].rhs_id()].get();
+
     auto query_minmax = std::ranges::minmax_element(
-        std::span(matches.begin() + lhs_idx, matches.begin() + rhs_idx),
+        std::span(matches.begin() + first_idx, matches.begin() + last_idx),
         std::less<>{}, &Match::lhs_position);
     auto query_first = query_minmax.min->lhs_position();
     auto query_last = query_minmax.max->lhs_position();
 
     auto target_minmax = std::ranges::minmax_element(
-        std::span(matches.begin() + lhs_idx, matches.begin() + rhs_idx),
+        std::span(matches.begin() + first_idx, matches.begin() + last_idx),
         std::less<>{}, &Match::rhs_position);
     auto target_first = target_minmax.min->rhs_position();
     auto target_last = target_minmax.max->rhs_position();
 
-    auto [score, positions] = CreateLCSKppScorer(
-        config, targets[matches[lhs_idx].rhs_id()], sequence, strand)(
+    auto [_, match_intervals] = CreateLCSKppScorer(
+        config, targets[matches[first_idx].rhs_id()], sequence, strand)(
         query_first, query_last, target_first, target_last);
 
-    if (score == 0 || positions.empty()) {
+    if (match_intervals.empty()) {
       continue;
     }
 
-    dst.emplace_back(
-        sequence->id, query_first + positions.front().first,
-        query_first + positions.back().first, target->id,
-        target_first + (strand ? positions.front().second
-                               : target_last - positions.front().second),
-        target_first + (strand ? positions.back().second
-                               : target_last - positions.back().second),
-        score, strand);
+    auto n_matches =
+        match_intervals[0].query_last - match_intervals[0].query_first;
+    for (std::size_t i = 0, j = 1; i < match_intervals.size(); ++j) {
+      if (j != match_intervals.size() &&
+          std::max(match_intervals[j].query_first -
+                       match_intervals[j - 1].query_last + 1,
+                   match_intervals[j].target_first -
+                       match_intervals[j - 1].target_last + 1) <= config.gap) {
+        n_matches +=
+            match_intervals[j].query_last - match_intervals[j].query_first;
+        continue;
+      }
+
+      auto query_overlap_begin = query_first + match_intervals[i].query_first;
+      auto query_overlap_end = query_first + match_intervals[j - 1].query_last;
+
+      auto target_overlap_begin =
+          target_first + (strand ? match_intervals[i].target_first
+                                 : target_last - target_first -
+                                       match_intervals[j - 1].target_last);
+      auto target_overlap_end =
+          target_first + (strand ? match_intervals[j - 1].target_last
+                                 : target_last - target_first -
+                                       match_intervals[i].target_first);
+
+      if (n_matches >= config.min_matches) {
+        dst.emplace_back(sequence->id, query_overlap_begin, query_overlap_end,
+                         target->id, target_overlap_begin, target_overlap_end,
+                         n_matches, strand);
+      }
+      i = j;
+      if (j != match_intervals.size()) {
+        n_matches =
+            match_intervals[j].query_last - match_intervals[j].query_first;
+      }
+    }
   }
 
   return dst;
@@ -717,7 +736,6 @@ std::vector<MatchChain> FindChainMatches(
     return a.rhs_id() != b.rhs_id() ? a.rhs_id() < b.rhs_id()
                                     : a.strand() < b.strand();
   });
-  matches.emplace_back(-1, -1);  // stop dummy
 
   auto intervals = FindMatchReadIntervals(config, matches);
   std::vector<MatchChain> match_chains;

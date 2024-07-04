@@ -1,6 +1,7 @@
 // Copyright 2017: I. Katanic, G. Matula
 #include "ram/lcskpp.hpp"
 
+#include <format>
 #include <optional>
 
 #include "biosoup/nucleic_acid.hpp"
@@ -347,6 +348,14 @@ LCSKppResult lcskpp(const std::string& rows, const std::string& cols, int k) {
 
     cur_interval.query_first = matches[i].row_idx - k + 1;
     cur_interval.target_first = matches[i].col_idx - k + 1;
+
+    DCHECK(cur_interval.query_last - cur_interval.query_first > 0 &&
+           cur_interval.target_last - cur_interval.target_first > 0);
+    DCHECK(rows.substr(cur_interval.query_first,
+                       cur_interval.query_last - cur_interval.query_first) ==
+           cols.substr(cur_interval.target_first,
+                       cur_interval.target_last - cur_interval.target_first));
+
     match_intervals.push_back(cur_interval);
 
     if (predecessor[i] != -1) {
@@ -363,6 +372,18 @@ LCSKppResult lcskpp(const std::string& rows, const std::string& cols, int k) {
   }
 
   std::ranges::reverse(match_intervals);
+  for (std::size_t j = 1; j < match_intervals.size(); ++j) {
+    DCHECK(match_intervals[j - 1].query_last <= match_intervals[j].query_first &&
+           match_intervals[j - 1].target_last <= match_intervals[j].target_first)
+        << std::format(
+               "prev_query_last={} cur_query_first={} prev_target_last={} "
+               "cur_target_first={}",
+               match_intervals[j - 1].query_last,
+               match_intervals[j].query_first,
+               match_intervals[j - 1].target_last,
+               match_intervals[j].target_first);
+  }
+
   return {.score = r, .match_intervals = std::move(match_intervals)};
 }
 

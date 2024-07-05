@@ -12,6 +12,8 @@ namespace ram {
 
 namespace {
 
+static constexpr double kMatchLengthRatio = 0.875;
+
 // Requirements for the comparison operator passed to a
 // function for finding match subsequences
 template <class T>
@@ -660,6 +662,7 @@ std::vector<biosoup::Overlap> ChainLCSKpp(
   auto intervals = FindMatchGroupIntervals(config, matches);
 
   std::vector<biosoup::Overlap> dst;
+  std::vector<std::pair<double, biosoup::Overlap>> candidate_overlaps;
   for (const auto& it : intervals) {
     std::uint64_t first_idx = it.first;
     std::uint64_t last_idx = it.second;
@@ -712,10 +715,15 @@ std::vector<biosoup::Overlap> ChainLCSKpp(
                                  : target_last - target_first -
                                        match_intervals[i].target_first);
 
+      auto overlap_length = std::max(query_overlap_end - query_overlap_begin,
+                                     target_overlap_end - target_overlap_begin);
       if (n_matches >= config.min_matches) {
-        dst.emplace_back(sequence->id, query_overlap_begin, query_overlap_end,
-                         target->id, target_overlap_begin, target_overlap_end,
-                         n_matches, strand);
+        candidate_overlaps.emplace_back(
+            1.0 * n_matches / overlap_length,
+            biosoup::Overlap(sequence->id, query_overlap_begin,
+                             query_overlap_end, target->id,
+                             target_overlap_begin, target_overlap_end,
+                             n_matches, strand));
       }
       i = j;
       if (j != match_intervals.size()) {
@@ -723,6 +731,17 @@ std::vector<biosoup::Overlap> ChainLCSKpp(
             match_intervals[j].query_last - match_intervals[j].query_first;
       }
     }
+  }
+
+  auto nth = std::min<std::size_t>(candidate_overlaps.size(), config.n_candidates);
+  std::ranges::partial_sort(candidate_overlaps,
+                            candidate_overlaps.begin() + nth, std::greater<>{},
+                            &std::pair<double, biosoup::Overlap>::first);
+  for (std::size_t i = 0; i < nth; ++i) {
+    if (i > 0 && candidate_overlaps[i].first < kMatchLengthRatio) {
+      break;
+    }
+    dst.push_back(std::move(candidate_overlaps[i].second));
   }
 
   return dst;

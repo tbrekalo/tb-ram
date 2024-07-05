@@ -21,6 +21,7 @@ struct ChainConfig {
   std::uint32_t chain = 4;
   std::int32_t min_matches = 100;
   std::int64_t gap = 10'000;
+  std::uint32_t n_candidates = 5;
 };
 
 struct MapToIndexConfig {

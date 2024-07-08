@@ -296,6 +296,7 @@ int main(int argc, char** argv) {
             .chain = parsed_options["chain"].as<std::uint32_t>(),
             .min_matches = parsed_options["matches"].as<std::int32_t>(),
             .gap = parsed_options["gap"].as<std::int64_t>(),
+            .n_chains = is_ava ? 5u : 1u,
         }};
 
     const auto mode = parsed_options["mode"].as<Mode>();

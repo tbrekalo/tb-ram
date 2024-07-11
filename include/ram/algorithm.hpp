@@ -33,19 +33,23 @@ inline void RadixSort(std::span<T> values, std::uint8_t max_bits, Proj proj) {
   std::vector<T> buffer(values.size());
   std::span sorted_values(buffer);
 
-  std::uint64_t bucket_indices[0x100]{};  // 256 b
+  constexpr auto kNBuckets = 0x100;
+  std::uint64_t bucket_indices[kNBuckets]{};  // 256 b
   std::uint8_t shift = 0;
   for (; shift < max_bits; shift += 8) {
-    std::uint64_t counts[0x100]{};  // 256 b
+    std::uint64_t counts[kNBuckets]{};  // 256 b
     for (const auto& it : values) {
       ++counts[(proj(it) >> shift) & 0xFF];
     }
 
     // exclusive scan
-    for (std::uint64_t bucket_idx = 0, count = 0; bucket_idx < 0x100;
-         count += counts[bucket_idx++]) {
-      bucket_indices[bucket_idx] = count;
-    }
+    [&bucket_indices, &counts]<std::size_t... Is>(std::index_sequence<Is...>) {
+      std::uint64_t count = 0;
+      (..., [&](std::size_t bucket_idx) {
+        bucket_indices[bucket_idx] = count;
+        count += counts[bucket_idx];
+      }(Is));
+    }(std::make_index_sequence<kNBuckets>{});
 
     // copies values from old array into sorted buckets
     for (const auto& it : values) {

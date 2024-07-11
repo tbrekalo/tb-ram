@@ -94,4 +94,5 @@ venv/
 wheels/
 build-debug
 build-relwithdebinfo
+build-profile
 scripts/notebooks/catboost_info

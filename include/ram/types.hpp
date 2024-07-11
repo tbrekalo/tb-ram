@@ -38,61 +38,98 @@ struct AlgoConfig {
 
 struct Kmer {
  public:
-  Kmer();
-  Kmer(std::uint64_t value, std::uint64_t origin);
+  constexpr Kmer() {}
 
-  std::uint32_t id() const noexcept;
+  constexpr Kmer(std::uint64_t value, std::uint64_t origin)
+      : value(value), origin(origin) {}
 
-  std::uint32_t position() const noexcept;
+  constexpr std::uint32_t id() const noexcept {
+    return static_cast<std::uint32_t>(origin >> 32);
+  }
 
-  bool strand() const noexcept;
+  constexpr std::uint32_t position() const noexcept {
+    return static_cast<std::uint32_t>(origin) >> 1;
+  }
+
+  constexpr bool strand() const noexcept { return origin & 1; }
 
   std::uint64_t value;
   std::uint64_t origin;
 };
 
-[[using gnu: always_inline, const, hot]] std::uint64_t KmerValueProjection(
-    const Kmer& kmer) noexcept;
+inline constexpr std::uint64_t KmerValueProjection(const Kmer& kmer) noexcept {
+  return kmer.value;
+}
 
-[[using gnu: always_inline, const, hot]] std::uint64_t KmerOriginProjection(
-    const Kmer& kmer) noexcept;
+inline constexpr std::uint64_t KmerOriginProjection(const Kmer& kmer) noexcept {
+  return kmer.origin;
+}
 
 struct Match {
  public:
-  Match();
-  Match(std::uint64_t group, std::uint64_t positions);
+  constexpr Match() {}
 
-  [[gnu::always_inline]] std::uint32_t rhs_id() const noexcept;
+  constexpr Match(std::uint64_t group, std::uint64_t positions)
+      : group(group), positions(positions) {}
 
-  [[gnu::always_inline]] bool strand() const noexcept;
+  constexpr std::uint32_t rhs_id() const noexcept {
+    return static_cast<std::uint32_t>(group >> 33);
+  }
 
-  [[gnu::always_inline]] std::uint32_t diagonal() const noexcept;
+  constexpr bool strand() const noexcept { return (group >> 32) & 1; }
 
-  [[gnu::always_inline]] std::uint32_t lhs_position() const noexcept;
+  constexpr std::uint32_t diagonal() const noexcept {
+    return static_cast<std::uint32_t>(group);
+  }
 
-  [[gnu::always_inline]] std::uint32_t rhs_position() const noexcept;
+  [[gnu::always_inline]] constexpr std::uint32_t lhs_position() const noexcept {
+    return static_cast<std::uint32_t>(positions >> 32);
+  }
+
+  [[gnu::always_inline]] constexpr std::uint32_t rhs_position() const noexcept {
+    return static_cast<std::uint32_t>(positions);
+  }
 
   std::uint64_t group;
   std::uint64_t positions;
 };
 
-[[using gnu: always_inline, const, hot]] std::uint64_t MatchGroupProjection(
-    const Match& match) noexcept;
+inline constexpr std::uint64_t MatchGroupProjection(
+    const Match& match) noexcept {
+  return match.group;
+}
 
-[[using gnu: always_inline, const, hot]] std::uint64_t MatchPositionProjection(
-    const Match& match) noexcept;
+inline constexpr std::uint64_t MatchPositionProjection(
+    const Match& match) noexcept {
+  return match.positions;
+}
 
 class Index {
  public:
-  Index();
+  Index() = default;
 
-  std::uint32_t Find(std::uint64_t key, const std::uint64_t** dst) const;
+  std::uint32_t Find(std::uint64_t key, const std::uint64_t** dst) const {
+    auto it = locator.find(key << 1);
+    if (it == locator.end()) {
+      return 0;
+    }
+    if (it->first & 1) {
+      *dst = &(it->second);
+      return 1;
+    }
+    *dst = &(origins[it->second >> 32]);
+    return static_cast<std::uint32_t>(it->second);
+  }
 
   struct Hash {
-    std::size_t operator()(std::uint64_t key) const noexcept;
+    std::size_t operator()(std::uint64_t key) const noexcept {
+      return std::hash<std::uint64_t>()(key >> 1);
+    }
   };
   struct KeyEqual {
-    bool operator()(std::uint64_t lhs, std::uint64_t rhs) const noexcept;
+    bool operator()(std::uint64_t lhs, std::uint64_t rhs) const noexcept {
+      return (lhs >> 1) == (rhs >> 1);
+    }
   };
 
   std::vector<std::uint64_t> origins;

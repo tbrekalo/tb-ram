@@ -28,6 +28,7 @@ option(ram_addres_sanitize
        "Build ram with ASAN support in Debug and RelWithDebInfo builds."
        ${RAM_MAIN_PROJECT})
 option(ram_compile_diagnostics "Build ram with compile time diagnostics" OFF)
+option(ram_profile_options "Build ram with profiling flags" OFF)
 
 find_package(biosoup 0.10.0 QUIET)
 find_package(glog 0.7.0 QUIET)
@@ -137,7 +138,7 @@ if(ram_build_exe)
 endif()
 
 add_library(ram src/algorithm.cpp src/lcskpp.cpp src/minimizer_engine.cpp
-                src/io.cpp src/types.cpp)
+                src/io.cpp)
 add_library(ram::ram ALIAS ram)
 
 target_include_directories(
@@ -173,6 +174,10 @@ if(ram_compile_diagnostics)
             $<$<CXX_COMPILER_ID:GNU>:-Wsuggest-attribute=noreturn>
             $<$<CXX_COMPILER_ID:GNU>:-Wsuggest-attribute=pure>
             $<$<CXX_COMPILER_ID:Clang>:-Rpass-analysis=loop-vectorize>)
+endif()
+
+if(ram_profile_options)
+  target_compile_options(ram PUBLIC -O2 -g -fno-omit-frame-pointer)
 endif()
 
 if(ram_install)

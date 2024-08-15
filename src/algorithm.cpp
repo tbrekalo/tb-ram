@@ -1,7 +1,6 @@
 #include "ram/algorithm.hpp"
 
 #include <cmath>
-#include <deque>
 #include <format>
 
 #include "biosoup/nucleic_acid.hpp"
@@ -320,6 +319,114 @@ ScoredMatchSequences FindChainIndices(ChainConfig config,
       strand);
 }
 
+template <class T, class Cmp>
+class PredicationMinElement {
+  [[no_unique_address]] Cmp cmp_;
+
+ public:
+  constexpr std::span<T>::iterator operator()(
+      std::span<T> span) const noexcept {
+    auto idx = 0;
+    for (std::size_t jdx = 0; jdx < span.size(); ++jdx) {
+      auto c = cmp_(span[jdx], span[idx]);
+      idx = c * jdx + (1 - c) * idx;
+    }
+
+    return span.begin() + idx;
+  }
+};
+
+template <class MinPolicy>
+class ArgRecoverySamplerImpl {
+  [[no_unique_address]] MinPolicy min_element_;
+
+ public:
+  std::vector<Kmer> operator()(const std::vector<Kmer>& kmers,
+                               std::uint32_t window_length) {
+    std::vector<Kmer> dst;
+    auto min_pos =
+        std::min_element(
+            kmers.begin(),
+            kmers.begin() + std::min<std::size_t>(window_length, kmers.size()),
+            [](const Kmer& lhs, const Kmer& rhs) -> bool {
+              return lhs.value < rhs.value;
+            }) -
+        kmers.begin();
+
+    std::int64_t idx = 0;
+    dst.resize(kmers.size());
+    dst[idx] = kmers[min_pos];
+    for (std::int64_t i = window_length;
+         i < static_cast<std::int64_t>(kmers.size()); ++i) {
+      std::uint64_t cond = 1;
+      if (min_pos >= i - window_length) {
+        cond = kmers[i - 1].value < kmers[min_pos].value;
+        min_pos = cond * (i - 1) + (1 - cond) * min_pos;
+      } else {
+        auto window =
+            std::span(kmers.begin() + i - window_length, kmers.begin() + i);
+        min_pos = min_element_(window) - window.begin() + i - window_length;
+      }
+      dst[idx] = kmers[min_pos];
+      idx += cond;
+    }
+
+    dst.resize(idx);
+    return dst;
+  }
+};
+
+template <template <class> class Sampler>
+class UnrolledSampler {
+  static constexpr std::size_t kMaxW = 31;
+  static constexpr std::size_t kJumpTblSize = kMaxW + 2uz;
+
+  using ImplPtr = std::vector<Kmer> (*)(const std::vector<Kmer>& kmers,
+                                        std::uint32_t window_length);
+
+  template <std::size_t I>
+  static constexpr auto ImplGenerator = []() -> ImplPtr {
+    return +[](const std::vector<Kmer>& kmers,
+               std::uint32_t window_length) -> std::vector<Kmer> {
+      return Sampler<decltype([] [[using gnu: always_inline, hot, const]] (
+                                  std::span<const Kmer> span) {
+        auto min = 0;
+        [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+          (..., [&](auto j) {
+            auto c = span[j].value < span[min].value;
+            min = c * j + (1 - c) * min;
+          }(Is));
+        }(std::make_index_sequence<I>{});
+        return span.begin() + min;
+      })>{}(kmers, window_length);
+    };
+  };
+
+  static constexpr auto kJumpTable = [] consteval {
+    std::array<ImplPtr, kJumpTblSize> dst;
+    [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+      (..., (dst[Is] = ImplGenerator<Is>()));
+    }(std::make_index_sequence<kJumpTblSize>{});
+
+    return dst;
+  }();
+
+ public:
+  std::vector<Kmer> operator()(const std::vector<Kmer>& kmers,
+                               std::uint32_t window_length) const noexcept {
+    if (window_length <= kMaxW) {
+      return kJumpTable[window_length](kmers, window_length);
+    }
+    return ArgRecoverySamplerImpl<PredicationMinElement<
+        const Kmer, decltype([] [[using gnu: always_inline, const, hot]] (
+                                 const Kmer& lhs, const Kmer& rhs) -> bool {
+          return lhs.value < rhs.value;
+        })>>{}(kmers, window_length);
+  }
+};
+
+using ArgRecoverySampler = UnrolledSampler<ArgRecoverySamplerImpl>;
+
 }  // namespace
 
 std::vector<Index> ConstructIndices(
@@ -548,55 +655,28 @@ std::vector<Kmer> Minimize(
     return key;
   };
 
-  std::deque<Kmer> window;
-  auto window_add = [&](std::uint64_t value, std::uint64_t location) -> void {
-    while (!window.empty() && window.back().value > value) {
-      window.pop_back();
-    }
-    window.emplace_back(value, location);
-  };
-  auto window_update = [&](std::uint32_t position) -> void {
-    while (!window.empty() && (window.front().position()) < position) {
-      window.pop_front();
-    }
-  };
-
   std::uint64_t shift = (config.kmer_length - 1) * 2;
   std::uint64_t minimizer = 0;
   std::uint64_t reverse_minimizer = 0;
   std::uint64_t id = static_cast<std::uint64_t>(sequence->id) << 32;
-  std::uint64_t is_stored = 1ULL << 63;
 
-  std::vector<Kmer> dst;
-
+  std::vector<Kmer> kmers;
   for (std::uint32_t i = 0; i < sequence->inflated_len; ++i) {
     std::uint64_t c = sequence->Code(i);
     minimizer = ((minimizer << 2) | c) & mask;
     reverse_minimizer = (reverse_minimizer >> 2) | ((c ^ 3) << shift);
     if (i >= config.kmer_length - 1U) {
-      if (minimizer < reverse_minimizer) {
-        window_add(hash(minimizer), (i - (config.kmer_length - 1U)) << 1 | 0);
-      } else if (minimizer > reverse_minimizer) {
-        window_add(hash(reverse_minimizer),
-                   (i - (config.kmer_length - 1U)) << 1 | 1);
-      }
-    }
-    if (i >= (config.kmer_length - 1U) + (config.window_length - 1U)) {
-      for (auto it = window.begin(); it != window.end(); ++it) {
-        if (it->value != window.front().value) {
-          break;
-        }
-        if (it->origin & is_stored) {
-          continue;
-        }
-        dst.emplace_back(it->value, id | it->origin);
-        it->origin |= is_stored;
-      }
-      window_update(i - (config.kmer_length - 1U) -
-                    (config.window_length - 1U) + 1);
+      auto fwd_hash = hash(minimizer);
+      auto rev_hash = hash(reverse_minimizer);
+      std::uint64_t cond = rev_hash < fwd_hash;
+      kmers.emplace_back(
+          hash(cond * rev_hash + (1 - cond) * fwd_hash),
+          id | static_cast<std::uint64_t>(
+                   ((i - (config.kmer_length - 1U)) << 1) | cond));
     }
   }
 
+  auto dst = ArgRecoverySampler{}(std::move(kmers), config.window_length);
   if (config.minhash) {
     RadixSort(std::span<Kmer>(dst), config.kmer_length * 2,
               KmerValueProjection);

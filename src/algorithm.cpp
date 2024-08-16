@@ -263,33 +263,6 @@ ScoredMatchSequences CreateMatchSequences(ChainConfig config,
                   })
             : config.kmer_length;
 
-    for (std::int64_t candidate_prev = prev_sorted_matches_idx - 1, k = 50;
-         candidate_prev > 0 && k > 0; --candidate_prev, --k) {
-      if (strand and
-          matches[sorted_matches[candidate_prev].match_idx].rhs_position() >=
-              matches[match_idx].rhs_position()) {
-        continue;
-      }
-
-      if (!strand and
-          matches[sorted_matches[candidate_prev].match_idx].rhs_position() <=
-              matches[match_idx].rhs_position()) {
-        continue;
-      }
-
-      assert_prev_idx(candidate_prev, match_idx);
-      if (auto new_score =
-              score_fn(sorted_matches[candidate_prev].match_idx, match_idx)
-                  .transform([&](double score) -> double {
-                    return score + sorted_matches[candidate_prev].score;
-                  });
-          new_score && new_score > score) {
-        score = new_score;
-        prev_sorted_matches_idx = candidate_prev;
-        break;
-      }
-    }
-
     sorted_matches[cur_sorted_matches_idx] = heads[match_idx] = {
         .match_idx = match_idx, .score = score.value_or(0.)};
     predecessor[match_idx] =

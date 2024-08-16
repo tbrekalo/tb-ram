@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "ankerl/unordered_dense.h"
 #include "thread_pool/thread_pool.hpp"
 
 namespace ram {
@@ -133,7 +134,8 @@ class Index {
   };
 
   std::vector<std::uint64_t> origins;
-  std::unordered_map<std::uint64_t, std::uint64_t, Hash, KeyEqual> locator;
+  ankerl::unordered_dense::map<std::uint64_t, std::uint64_t, Hash, KeyEqual>
+      locator;
 };
 
 struct MatchChain {

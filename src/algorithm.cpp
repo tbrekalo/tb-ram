@@ -125,22 +125,14 @@ auto CreateLCSKppScorer(ChainConfig config,
                                   std::uint32_t query_last,
                                   std::uint32_t target_first,
                                   std::uint32_t target_last) -> LCSKppResult {
-    auto mod_target = [&] {
-      auto dst = biosoup::NucleicAcid(
-          "", target->InflateData(target_first, target_last - target_first));
-      if (!strand) {
-        dst.ReverseAndComplement();
-      }
-      return dst;
-    }();
     return LCSKpp(ArgNucleicAcid{.ptr = query,
                                  .first = query_first,
                                  .last = query_last,
                                  .is_rc = false},
-                  ArgNucleicAcid{.ptr = &mod_target,
-                                 .first = 0,
-                                 .last = mod_target.inflated_len,
-                                 .is_rc = false},
+                  ArgNucleicAcid{.ptr = target,
+                                 .first = target_first,
+                                 .last = target_last,
+                                 .is_rc = !strand},
                   k);
   };
 }

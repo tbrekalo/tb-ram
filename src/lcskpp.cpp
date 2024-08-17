@@ -234,22 +234,20 @@ std::vector<std::vector<LCSKppKmer>> ExtractKmers(ArgNucleicAcid lhs,
     }
   }
 
-  auto RhsCode = [rhs] {
+  auto RhsCode = [rhs]() {
     if (rhs.is_rc) {
-      return +[](biosoup::NucleicAcid* ptr, std::int32_t i) -> std::uint64_t {
-        return ptr->Code(ptr->inflated_len - 1 - i) ^ 3;
-      };
+      return +[](biosoup::NucleicAcid* ptr, std::int32_t, std::int32_t last,
+                 std::int32_t i) { return ptr->Code(last - 1 - i) ^ 3; };
     }
-
-    return +[](biosoup::NucleicAcid* ptr, std::int32_t i) -> std::uint64_t {
-      return ptr->Code(i);
-    };
+    return +[](biosoup::NucleicAcid* ptr, std::int32_t first, std::int32_t,
+               std::int32_t i) { return ptr->Code(first + i); };
   }();
 
   current_hash = 0;
   for (std::int32_t i = 0; i < m; ++i) {
     current_hash =
-        (current_hash * sigma + RhsCode(rhs.ptr, rhs.first + i)) & mod_mask;
+        (current_hash * sigma + RhsCode(rhs.ptr, rhs.first, rhs.last, i)) &
+        mod_mask;
     if (i >= k - 1)
       kmers[current_hash % nBuckets].push_back(
           {current_hash / nBuckets, (n + i)});

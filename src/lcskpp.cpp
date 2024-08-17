@@ -49,7 +49,7 @@ constexpr int Log2(uint64_t x) { return x <= 1 ? 0 : 1 + Log2(x / 2); }
 
 struct LCSKppKmer {
   std::uint64_t value;
-  std::int32_t pos;
+  std::int32_t end_pos;
 };
 
 // Sorts vector of pairs v, by v.first using radix sort.
@@ -103,12 +103,16 @@ struct Match {
 
 constexpr int nBuckets = 16;
 
-std::vector<Match> MatchKmers(std::vector<std::vector<LCSKppKmer>> hashes,
+std::vector<Match> MatchKmers(std::vector<std::vector<LCSKppKmer>> kmers,
                               std::int32_t n, std::int32_t sigma,
                               std::int32_t k) {
+  if (kmers.empty()) {
+    return {};
+  }
+
   uint64_t sigma_to_k = NextPw2(*PowerFitsIn63bits(sigma, k));
   std::vector<Match> dst;
-  for (auto& bucket : hashes) {
+  for (auto& bucket : kmers) {
     RadixSort(bucket, sigma_to_k / nBuckets);
 
     for (std::size_t i = 0, j = 0; i < bucket.size(); i = j) {
@@ -117,11 +121,11 @@ std::vector<Match> MatchKmers(std::vector<std::vector<LCSKppKmer>> hashes,
 
       if (j - i > 1) {
         std::size_t s = i;
-        while (s < j && bucket[s].pos < n) ++s;
+        while (s < j && bucket[s].end_pos < n) ++s;
 
         for (std::size_t k1 = i; k1 < s; ++k1) {
           for (std::size_t k2 = s; k2 < j; ++k2) {
-            dst.push_back({bucket[k1].pos, bucket[k2].pos - n});
+            dst.push_back({bucket[k1].end_pos, bucket[k2].end_pos - n});
           }
         }
       }
@@ -151,7 +155,7 @@ std::vector<Match> MatchKmers(std::vector<std::vector<LCSKppKmer>> hashes,
 
 std::vector<std::vector<LCSKppKmer>> ExtractKmers(std::string_view lhs_str,
                                                   std::string_view rhs_str,
-                                                  std::uint64_t sigma,
+                                                  std::int32_t sigma,
                                                   std::int32_t k) {
   int n = lhs_str.size();
   int m = rhs_str.size();
@@ -165,7 +169,7 @@ std::vector<std::vector<LCSKppKmer>> ExtractKmers(std::string_view lhs_str,
     kmers[p].reserve((n + m) / nBuckets);
   }
 
-  uint64_t current_hash = 0;
+  std::uint64_t current_hash = 0;
   for (int i = 0; i < n; ++i) {
     current_hash =
         (current_hash * sigma +
@@ -177,7 +181,6 @@ std::vector<std::vector<LCSKppKmer>> ExtractKmers(std::string_view lhs_str,
   }
 
   current_hash = 0;
-
   for (int i = 0; i < m; ++i) {
     current_hash =
         (current_hash * sigma +
@@ -191,15 +194,14 @@ std::vector<std::vector<LCSKppKmer>> ExtractKmers(std::string_view lhs_str,
   return kmers;
 }
 
-// Finds all k-matches in given pair of strings.
 std::vector<Match> CalcMatches(const std::string_view lhs_str,
-                               const std::string_view rhs_str, int k) {
+                               const std::string_view rhs_str, std::int32_t k) {
   if (lhs_str.empty() || rhs_str.empty()) {
     return {};
   }
 
   int n = lhs_str.size();
-  constexpr int sigma = 4;
+  constexpr std::int32_t sigma = 4;
   auto kmers = ExtractKmers(lhs_str, rhs_str, sigma, k);
   return MatchKmers(std::move(kmers), n, sigma, k);
 }

@@ -27,8 +27,8 @@ struct LCSKppResult {
 
 struct ArgNucleicAcid {
   biosoup::NucleicAcid* ptr;
-  std::int32_t start;
-  std::int32_t end;
+  std::uint32_t first;
+  std::uint32_t last;
   bool is_rc;
 };
 

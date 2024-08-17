@@ -138,7 +138,7 @@ auto CreateLCSKppScorer(ChainConfig config,
     }();
     auto query_str = query->InflateData(query_first, query_last - query_first);
 
-    return lcskpp(query_str, target_str, k);
+    return LCSKpp(query_str, target_str, k);
   };
 }
 

@@ -1,8 +1,12 @@
 #ifndef LCSKPP_H_
 #define LCSKPP_H_
 
-#include <string>
+#include <string_view>
 #include <vector>
+
+namespace biosoup {
+class NucleicAcid;
+}
 
 namespace ram {
 
@@ -21,10 +25,17 @@ struct LCSKppResult {
   std::vector<MatchInterval> match_intervals;
 };
 
-// Returns length of LCSk++ of given strings a and b.
-// LCSK++ indices will be reconstructed to vector pointed to by
-// `reconstruction` arg pointer. If it's set to NULL reconstruction is skipped.
-LCSKppResult lcskpp(const std::string& rows, const std::string& cols, int k);
+struct ArgNucleicAcid {
+  biosoup::NucleicAcid* ptr;
+  std::int32_t start;
+  std::int32_t end;
+  bool is_rc;
+};
+
+LCSKppResult LCSKpp(ArgNucleicAcid lhs, ArgNucleicAcid rhs, std::int32_t k);
+
+LCSKppResult LCSKpp(const std::string_view rows, const std::string_view cols,
+                    std::int32_t k);
 
 }  // namespace ram
 

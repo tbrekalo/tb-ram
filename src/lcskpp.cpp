@@ -14,8 +14,7 @@ namespace {
 // If there was no overflow, same as:
 //   *c = a*b
 //   return *c < 2^63
-constexpr std::optional<uint64_t> product_fits_in_63bits(uint64_t a,
-                                                         uint64_t b) {
+constexpr std::optional<uint64_t> ProductFitsIn63bits(uint64_t a, uint64_t b) {
   if (a <= LLONG_MAX / b) {
     return a * b;
   }
@@ -25,10 +24,10 @@ constexpr std::optional<uint64_t> product_fits_in_63bits(uint64_t a,
 // If there was no overflow, same as:
 //   *c = pow(a, b)
 //   return *c < 2^63
-constexpr std::optional<uint64_t> power_fits_in_63bits(uint64_t a, uint64_t b) {
+constexpr std::optional<uint64_t> PowerFitsIn63bits(uint64_t a, uint64_t b) {
   uint64_t ret = 1;
   while (b > 0) {
-    if (auto opt_prod = product_fits_in_63bits(ret, a); opt_prod) {
+    if (auto opt_prod = ProductFitsIn63bits(ret, a); opt_prod) {
       ret = *opt_prod;
       --b;
 
@@ -40,23 +39,28 @@ constexpr std::optional<uint64_t> power_fits_in_63bits(uint64_t a, uint64_t b) {
   return ret;
 }
 
-constexpr uint64_t next_pw2(uint64_t x) {
+constexpr uint64_t NextPw2(uint64_t x) {
   uint64_t power_2 = 1;
   while (power_2 < x) power_2 *= 2;
   return power_2;
 }
 
-constexpr int log2(uint64_t x) { return x <= 1 ? 0 : 1 + log2(x / 2); }
+constexpr int Log2(uint64_t x) { return x <= 1 ? 0 : 1 + Log2(x / 2); }
+
+struct LCSKppKmer {
+  std::uint64_t value;
+  std::int32_t pos;
+};
 
 // Sorts vector of pairs v, by v.first using radix sort.
 // Argument maks should be equal to largest v.first.
-void radix_sort(std::vector<std::pair<uint64_t, int>>& v, uint64_t maks) {
+void RadixSort(std::vector<LCSKppKmer>& v, uint64_t maks) {
   const int len = 9;
   const int sz = 1 << len;
   const int mask = sz - 1;
   int pos[sz + 1];
 
-  std::vector<std::pair<uint64_t, int>> w(v.size());
+  std::vector<LCSKppKmer> w(v.size());
 
   int n_blocks = 0;
   while (maks > 1) {
@@ -68,7 +72,7 @@ void radix_sort(std::vector<std::pair<uint64_t, int>>& v, uint64_t maks) {
     memset(pos, 0, sizeof pos);
 
     for (auto& x : v) {
-      ++pos[((x.first >> (block * len)) & mask) + 1];
+      ++pos[((x.value >> (block * len)) & mask) + 1];
     }
 
     for (int i = 0; i < sz; ++i) {
@@ -76,7 +80,7 @@ void radix_sort(std::vector<std::pair<uint64_t, int>>& v, uint64_t maks) {
     }
 
     for (auto& x : v) {
-      w[pos[(x.first >> (block * len)) & mask]++] = x;
+      w[pos[(x.value >> (block * len)) & mask]++] = x;
     }
 
     v.swap(w);
@@ -97,80 +101,27 @@ struct Match {
   friend auto operator<=>(Match lhs, Match rhs) = default;
 };
 
-// Finds all k-matches in given pair of strings.
-std::vector<Match> calc_matches(const std::string& a, const std::string& b,
-                                int k) {
-  std::vector<Match> matches;
-  if (a.empty() || b.empty()) {
-    return {};
-  }
-  // First, remap characters to interval [0, sigma>,
-  // where sigma is alphabet size.
-  int n = a.size();
-  int m = b.size();
-  constexpr int sigma = 4;
+constexpr int nBuckets = 16;
 
-  // sigma_to_k is number of possible k length strings
-  uint64_t sigma_to_k;
-  if (auto opt_sigma_to_k = power_fits_in_63bits(sigma, k);
-      not opt_sigma_to_k) {
-    fprintf(stderr, "This implementation works only when sigma^k < 2^63.");
-    return {};
-  } else {
-    sigma_to_k = *opt_sigma_to_k;
-  }
-  // increase sigma_to_k to the next power of two, for cheaper mod operation
-  sigma_to_k = next_pw2(sigma_to_k);
-  uint64_t mod_mask = sigma_to_k - 1;
-
-  //  a) throw k-length substrings hashes from both string, into 16 buckets,
-  //      based on first 4 bits of the hash.
-  //  b) radix sort each bucket
-  //  c) find consecutive hashes of the same value and save pairs of hashes
-  //      from different strings.
-
-  constexpr int nBuckets = 16;
-  // std::pair<uint64_t, int> -> (hash, end_position)
-  std::vector<std::vector<std::pair<uint64_t, int>>> hashes(nBuckets);
-  for (int p = 0; p < nBuckets; ++p) {
-    hashes[p].reserve((n + m) / nBuckets);
-  }
-
-  uint64_t current_hash = 0;
-  for (int i = 0; i < n; ++i) {
-    current_hash = (current_hash * sigma +
-                    biosoup::kNucleotideCoder[static_cast<uint8_t>(a[i])]) &
-                   mod_mask;
-    if (i >= k - 1) {
-      hashes[current_hash % nBuckets].push_back({current_hash / nBuckets, i});
-    }
-  }
-
-  current_hash = 0;
-
-  for (int i = 0; i < m; ++i) {
-    current_hash = (current_hash * sigma +
-                    biosoup::kNucleotideCoder[static_cast<uint8_t>(b[i])]) &
-                   mod_mask;
-    if (i >= k - 1)
-      hashes[current_hash % nBuckets].push_back(
-          {current_hash / nBuckets, (n + i)});
-  }
-
+std::vector<Match> MatchKmers(std::vector<std::vector<LCSKppKmer>> hashes,
+                              std::int32_t n, std::int32_t sigma,
+                              std::int32_t k) {
+  uint64_t sigma_to_k = NextPw2(*PowerFitsIn63bits(sigma, k));
+  std::vector<Match> dst;
   for (auto& bucket : hashes) {
-    radix_sort(bucket, sigma_to_k / nBuckets);
+    RadixSort(bucket, sigma_to_k / nBuckets);
 
     for (std::size_t i = 0, j = 0; i < bucket.size(); i = j) {
-      for (j = i + 1; j < bucket.size() && bucket[j].first == bucket[i].first;
+      for (j = i + 1; j < bucket.size() && bucket[j].value == bucket[i].value;
            ++j);
 
       if (j - i > 1) {
         std::size_t s = i;
-        while (s < j && bucket[s].second < n) ++s;
+        while (s < j && bucket[s].pos < n) ++s;
 
         for (std::size_t k1 = i; k1 < s; ++k1) {
           for (std::size_t k2 = s; k2 < j; ++k2) {
-            matches.push_back({bucket[k1].second, bucket[k2].second - n});
+            dst.push_back({bucket[k1].pos, bucket[k2].pos - n});
           }
         }
       }
@@ -179,57 +130,108 @@ std::vector<Match> calc_matches(const std::string& a, const std::string& b,
 
   // Now we have to sort matching pairs. If there is small number of pairs
   // sort them using std::sort, otherwise use the pigeonhole sort:
-  if (matches.size() * log2(matches.size()) < 3u * n) {
-    std::ranges::sort(matches);
+  if (dst.size() * Log2(dst.size()) < 3u * n) {
+    std::ranges::sort(dst);
   } else {
     std::vector<int> pos(n + 1, 0);
-    std::vector<Match> tmp(matches.size());
-    for (auto& match : matches) {
+    std::vector<Match> tmp(dst.size());
+    for (auto& match : dst) {
       pos[match.row_idx + 1]++;
     }
     for (int i = 0; i < n; ++i) {
       pos[i + 1] += pos[i];
     }
-    for (auto& p : matches) {
+    for (auto& p : dst) {
       tmp[pos[p.row_idx]++] = p;
     }
-    matches.swap(tmp);
+    dst.swap(tmp);
   }
-  return matches;
+  return dst;
 }
 
-}  // namespace
+std::vector<std::vector<LCSKppKmer>> ExtractKmers(std::string_view lhs_str,
+                                                  std::string_view rhs_str,
+                                                  std::uint64_t sigma,
+                                                  std::int32_t k) {
+  int n = lhs_str.size();
+  int m = rhs_str.size();
 
-LCSKppResult lcskpp(const std::string& rows, const std::string& cols, int k) {
-  if (rows.empty() || cols.empty()) {
+  uint64_t sigma_to_k = NextPw2(*PowerFitsIn63bits(sigma, k));
+  uint64_t mod_mask = sigma_to_k - 1;
+
+  // std::pair<uint64_t, int> -> (hash, end_position)
+  std::vector<std::vector<LCSKppKmer>> kmers(nBuckets);
+  for (int p = 0; p < nBuckets; ++p) {
+    kmers[p].reserve((n + m) / nBuckets);
+  }
+
+  uint64_t current_hash = 0;
+  for (int i = 0; i < n; ++i) {
+    current_hash =
+        (current_hash * sigma +
+         biosoup::kNucleotideCoder[static_cast<uint8_t>(lhs_str[i])]) &
+        mod_mask;
+    if (i >= k - 1) {
+      kmers[current_hash % nBuckets].push_back({current_hash / nBuckets, i});
+    }
+  }
+
+  current_hash = 0;
+
+  for (int i = 0; i < m; ++i) {
+    current_hash =
+        (current_hash * sigma +
+         biosoup::kNucleotideCoder[static_cast<uint8_t>(rhs_str[i])]) &
+        mod_mask;
+    if (i >= k - 1)
+      kmers[current_hash % nBuckets].push_back(
+          {current_hash / nBuckets, (n + i)});
+  }
+
+  return kmers;
+}
+
+// Finds all k-matches in given pair of strings.
+std::vector<Match> CalcMatches(const std::string_view lhs_str,
+                               const std::string_view rhs_str, int k) {
+  if (lhs_str.empty() || rhs_str.empty()) {
     return {};
   }
 
-  int n_cols = cols.size();
-  auto matches = calc_matches(rows, cols, k);
-  if (matches.empty()) {
-    return {};
-  }
+  int n = lhs_str.size();
+  constexpr int sigma = 4;
+  auto kmers = ExtractKmers(lhs_str, rhs_str, sigma, k);
+  return MatchKmers(std::move(kmers), n, sigma, k);
+}
 
+struct LCSKppImplResult {
+  std::vector<std::int32_t> predecessor;
+  std::int32_t last_idx;
+  std::int32_t score;
+};
+
+LCSKppImplResult LCSKppImpl(const std::vector<Match>& matches, std::int32_t k,
+                            std::int32_t n_cols) {
   int n_matches = matches.size();
   std::vector<PrefixDb> MinYPrefix(n_cols + 1, {n_cols + 1, -1});
   MinYPrefix[0].column_idx = -1;
 
-  int r = 0;      // current lcsk++ length
-  int log_r = 1;  // log(r+1) + 1
+  int cur_len = 0;  // current lcsk++ length
+  int log_r = 1;    // log(r+1) + 1
 
   std::vector<int> match_dp(matches.size());
-  std::vector<int> predecessor(matches.size());
+  std::vector<int> dst(matches.size());
 
   int match_idx = 0;
   int query_match_idx = 0;
   int cont_idx = 0;
-  int last_idx = -1;
+  int dst_idx = -1;
 
   // We process matches row by row (while loop).
   // When at row i, we also handle queries on MinYPrefix for matches
   // in row i+k-1 (query_idx).
-  // cont_idx points to ptr's possible continuation (applicable only to k > 1).
+  // cont_idx points to ptr's possible continuation (applicable only to k >
+  // 1).
   while (match_idx < n_matches) {
     int update_row_index = matches[match_idx].row_idx;  // current row index
     int matches_cur_row_idx = match_idx;
@@ -247,13 +249,13 @@ LCSKppResult lcskpp(const std::string& rows, const std::string& cols, int k) {
 
       // decide between binary search for each match (Hunt and Szymanski) and
       // sweep through MinYPrefix (Kuo and Cross).
-      if ((query_row_end - query_match_idx) * log_r * 6 < r) {
+      if ((query_row_end - query_match_idx) * log_r * 6 < cur_len) {
         int last_l = 0;
         while (query_match_idx < query_row_end) {
           int j = matches[query_match_idx].col_idx;
 
           if (MinYPrefix[last_l].column_idx < j - k + 1) {
-            int lo = last_l + 1, hi = r + 1;
+            int lo = last_l + 1, hi = cur_len + 1;
             while (lo < hi) {
               int mid = (lo + hi) / 2;
               if (MinYPrefix[mid].column_idx < j - k + 1)
@@ -264,7 +266,7 @@ LCSKppResult lcskpp(const std::string& rows, const std::string& cols, int k) {
             last_l = lo;
           }
 
-          predecessor[query_match_idx] = MinYPrefix[last_l - 1].match_idx;
+          dst[query_match_idx] = MinYPrefix[last_l - 1].match_idx;
           match_dp[query_match_idx++] = last_l - 1 + k;
         }
       } else {
@@ -272,7 +274,7 @@ LCSKppResult lcskpp(const std::string& rows, const std::string& cols, int k) {
         while (query_match_idx < query_row_end) {
           int col_idx = matches[query_match_idx].col_idx;
           while (MinYPrefix[len].column_idx < col_idx - k + 1) len++;
-          predecessor[query_match_idx] = MinYPrefix[len - 1].match_idx;
+          dst[query_match_idx] = MinYPrefix[len - 1].match_idx;
           match_dp[query_match_idx++] = len - 1 + k;
         }
       }
@@ -306,22 +308,28 @@ LCSKppResult lcskpp(const std::string& rows, const std::string& cols, int k) {
             matches[cont_idx].col_idx == col_idx - 1 &&
             match_dp[cont_idx] + 1 > cur_dp) {
           cur_dp = match_dp[cont_idx] + 1;
-          predecessor[match_idx] = cont_idx;
+          dst[match_idx] = cont_idx;
           MinYPrefix[cur_dp] =
               std::min(MinYPrefix[cur_dp], PrefixDb{col_idx, match_idx});
         }
       }
 
-      if (cur_dp > r) {
-        r = cur_dp;
-        last_idx = match_idx;
-        while ((1 << log_r) < r + 1) log_r++;
+      if (cur_dp > cur_len) {
+        cur_len = cur_dp;
+        dst_idx = match_idx;
+        while ((1 << log_r) < cur_len + 1) log_r++;
       }
 
       match_idx++;
     }
   }
 
+  return LCSKppImplResult{std::move(dst), dst_idx, cur_len};
+}
+
+std::vector<MatchInterval> ReconstructIntervals(
+    const std::vector<Match>& matches, std::vector<std::int32_t> predecessor,
+    std::int32_t last_idx, std::int32_t k) {
   std::vector<MatchInterval> match_intervals;
   MatchInterval cur_interval{
       .query_first = matches[last_idx].row_idx - k + 1,
@@ -351,10 +359,6 @@ LCSKppResult lcskpp(const std::string& rows, const std::string& cols, int k) {
 
     DCHECK(cur_interval.query_last - cur_interval.query_first > 0 &&
            cur_interval.target_last - cur_interval.target_first > 0);
-    DCHECK(rows.substr(cur_interval.query_first,
-                       cur_interval.query_last - cur_interval.query_first) ==
-           cols.substr(cur_interval.target_first,
-                       cur_interval.target_last - cur_interval.target_first));
 
     match_intervals.push_back(cur_interval);
 
@@ -372,9 +376,40 @@ LCSKppResult lcskpp(const std::string& rows, const std::string& cols, int k) {
   }
 
   std::ranges::reverse(match_intervals);
+  return match_intervals;
+};
+
+}  // namespace
+
+LCSKppResult LCSKpp(ArgNucleicAcid lhs, ArgNucleicAcid rhs, std::int32_t k) {}
+
+LCSKppResult LCSKpp(const std::string_view rows, const std::string_view cols,
+                    std::int32_t k) {
+  if (rows.empty() || cols.empty()) {
+    return {};
+  }
+
+  int n_cols = cols.size();
+  auto matches = CalcMatches(rows, cols, k);
+  if (matches.empty()) {
+    return {};
+  }
+
+  auto&& [predecessor, last_idx, score] = LCSKppImpl(matches, k, n_cols);
+  auto match_intervals =
+      ReconstructIntervals(matches, predecessor, last_idx, k);
+
   for (std::size_t j = 1; j < match_intervals.size(); ++j) {
-    DCHECK(match_intervals[j - 1].query_last <= match_intervals[j].query_first &&
-           match_intervals[j - 1].target_last <= match_intervals[j].target_first)
+    DCHECK(rows.substr(match_intervals[j].query_first,
+                       match_intervals[j].query_last -
+                           match_intervals[j].query_first) ==
+           cols.substr(match_intervals[j].target_first,
+                       match_intervals[j].target_last -
+                           match_intervals[j].target_first));
+
+    DCHECK(
+        match_intervals[j - 1].query_last <= match_intervals[j].query_first &&
+        match_intervals[j - 1].target_last <= match_intervals[j].target_first)
         << std::format(
                "prev_query_last={} cur_query_first={} prev_target_last={} "
                "cur_target_first={}",
@@ -384,7 +419,7 @@ LCSKppResult lcskpp(const std::string& rows, const std::string& cols, int k) {
                match_intervals[j].target_first);
   }
 
-  return {.score = r, .match_intervals = std::move(match_intervals)};
+  return {.score = score, .match_intervals = std::move(match_intervals)};
 }
 
 }  // namespace ram

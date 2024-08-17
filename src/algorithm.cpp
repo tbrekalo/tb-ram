@@ -137,7 +137,6 @@ auto CreateLCSKppScorer(ChainConfig config,
       return dst;
     }();
     auto query_str = query->InflateData(query_first, query_last - query_first);
-
     return LCSKpp(query_str, target_str, k);
   };
 }
@@ -681,13 +680,13 @@ std::vector<biosoup::Overlap> ChainLCSKpp(
         std::span(matches.begin() + first_idx, matches.begin() + last_idx),
         std::less<>{}, &Match::lhs_position);
     auto query_first = query_minmax.min->lhs_position();
-    auto query_last = query_minmax.max->lhs_position();
+    auto query_last = query_minmax.max->lhs_position() + config.kmer_length;
 
     auto target_minmax = std::ranges::minmax_element(
         std::span(matches.begin() + first_idx, matches.begin() + last_idx),
         std::less<>{}, &Match::rhs_position);
     auto target_first = target_minmax.min->rhs_position();
-    auto target_last = target_minmax.max->rhs_position();
+    auto target_last = target_minmax.max->rhs_position() + config.kmer_length;
 
     auto [_, match_intervals] = CreateLCSKppScorer(
         config, targets[matches[first_idx].rhs_id()], sequence, strand)(

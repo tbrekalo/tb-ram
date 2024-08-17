@@ -170,7 +170,7 @@ std::vector<std::vector<LCSKppKmer>> ExtractKmers(std::string_view lhs_str,
   }
 
   std::uint64_t current_hash = 0;
-  for (int i = 0; i < n; ++i) {
+  for (std::int32_t i = 0; i < n; ++i) {
     current_hash =
         (current_hash * sigma +
          biosoup::kNucleotideCoder[static_cast<uint8_t>(lhs_str[i])]) &
@@ -181,7 +181,7 @@ std::vector<std::vector<LCSKppKmer>> ExtractKmers(std::string_view lhs_str,
   }
 
   current_hash = 0;
-  for (int i = 0; i < m; ++i) {
+  for (std::int32_t i = 0; i < m; ++i) {
     current_hash =
         (current_hash * sigma +
          biosoup::kNucleotideCoder[static_cast<uint8_t>(rhs_str[i])]) &
@@ -203,6 +203,66 @@ std::vector<Match> CalcMatches(const std::string_view lhs_str,
   int n = lhs_str.size();
   constexpr std::int32_t sigma = 4;
   auto kmers = ExtractKmers(lhs_str, rhs_str, sigma, k);
+  return MatchKmers(std::move(kmers), n, sigma, k);
+}
+
+std::vector<std::vector<LCSKppKmer>> ExtractKmers(ArgNucleicAcid lhs,
+                                                  ArgNucleicAcid rhs,
+                                                  std::int32_t sigma,
+                                                  std::int32_t k) {
+  int n = lhs.last - lhs.first;
+  int m = rhs.last - rhs.first;
+
+  if (n < k || m < k) {
+    return {};
+  }
+
+  uint64_t sigma_to_k = NextPw2(*PowerFitsIn63bits(sigma, k));
+  uint64_t mod_mask = sigma_to_k - 1;
+
+  std::vector<std::vector<LCSKppKmer>> kmers(nBuckets);
+  for (int p = 0; p < nBuckets; ++p) {
+    kmers[p].reserve((n + m) / nBuckets);
+  }
+
+  std::uint64_t current_hash = 0;
+  for (std::int32_t i = 0; i < n; ++i) {
+    current_hash =
+        (current_hash * sigma + lhs.ptr->Code(lhs.first + i)) & mod_mask;
+    if (i >= k - 1) {
+      kmers[current_hash % nBuckets].push_back({current_hash / nBuckets, i});
+    }
+  }
+
+  auto RhsCode = [rhs] {
+    if (rhs.is_rc) {
+      return +[](biosoup::NucleicAcid* ptr, std::int32_t i) -> std::uint64_t {
+        return ptr->Code(ptr->inflated_len - 1 - i) ^ 3;
+      };
+    }
+
+    return +[](biosoup::NucleicAcid* ptr, std::int32_t i) -> std::uint64_t {
+      return ptr->Code(i);
+    };
+  }();
+
+  current_hash = 0;
+  for (std::int32_t i = 0; i < m; ++i) {
+    current_hash =
+        (current_hash * sigma + RhsCode(rhs.ptr, rhs.first + i)) & mod_mask;
+    if (i >= k - 1)
+      kmers[current_hash % nBuckets].push_back(
+          {current_hash / nBuckets, (n + i)});
+  }
+
+  return kmers;
+}
+
+std::vector<Match> CalcMatches(ArgNucleicAcid lhs, ArgNucleicAcid rhs,
+                               std::int32_t k) {
+  int n = lhs.last - lhs.first;
+  constexpr std::int32_t sigma = 4;
+  auto kmers = ExtractKmers(lhs, rhs, sigma, k);
   return MatchKmers(std::move(kmers), n, sigma, k);
 }
 
@@ -383,7 +443,23 @@ std::vector<MatchInterval> ReconstructIntervals(
 
 }  // namespace
 
-LCSKppResult LCSKpp(ArgNucleicAcid lhs, ArgNucleicAcid rhs, std::int32_t k) {}
+LCSKppResult LCSKpp(ArgNucleicAcid rows, ArgNucleicAcid cols, std::int32_t k) {
+  if (rows.first == rows.last || cols.first == cols.last) {
+    return {};
+  }
+
+  int n_cols = cols.last - cols.first;
+  auto matches = CalcMatches(rows, cols, k);
+  if (matches.empty()) {
+    return {};
+  }
+
+  auto&& [predecessor, last_idx, score] = LCSKppImpl(matches, k, n_cols);
+  auto match_intervals =
+      ReconstructIntervals(matches, predecessor, last_idx, k);
+
+  return {.score = score, .match_intervals = std::move(match_intervals)};
+}
 
 LCSKppResult LCSKpp(const std::string_view rows, const std::string_view cols,
                     std::int32_t k) {

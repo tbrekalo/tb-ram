@@ -94,24 +94,17 @@ struct PrefixDb {
   friend auto operator<=>(PrefixDb lhs, PrefixDb rhs) = default;
 };
 
-struct Match {
-  int row_idx;  // row end position (inclusive)
-  int col_idx;  // col end position (inclusive)
-
-  friend auto operator<=>(Match lhs, Match rhs) = default;
-};
-
 constexpr int nBuckets = 16;
 
-std::vector<Match> MatchKmers(std::vector<std::vector<LCSKppKmer>> kmers,
-                              std::int32_t n, std::int32_t sigma,
-                              std::int32_t k) {
+std::vector<LCSKppMatch> MatchKmers(std::vector<std::vector<LCSKppKmer>> kmers,
+                                    std::int32_t n, std::int32_t sigma,
+                                    std::int32_t k) {
   if (kmers.empty()) {
     return {};
   }
 
   uint64_t sigma_to_k = NextPw2(*PowerFitsIn63bits(sigma, k));
-  std::vector<Match> dst;
+  std::vector<LCSKppMatch> dst;
   for (auto& bucket : kmers) {
     RadixSort(bucket, sigma_to_k / nBuckets);
 
@@ -138,7 +131,7 @@ std::vector<Match> MatchKmers(std::vector<std::vector<LCSKppKmer>> kmers,
     std::ranges::sort(dst);
   } else {
     std::vector<int> pos(n + 1, 0);
-    std::vector<Match> tmp(dst.size());
+    std::vector<LCSKppMatch> tmp(dst.size());
     for (auto& match : dst) {
       pos[match.row_idx + 1]++;
     }
@@ -194,8 +187,9 @@ std::vector<std::vector<LCSKppKmer>> ExtractKmers(std::string_view lhs_str,
   return kmers;
 }
 
-std::vector<Match> CalcMatches(const std::string_view lhs_str,
-                               const std::string_view rhs_str, std::int32_t k) {
+std::vector<LCSKppMatch> CalcMatches(const std::string_view lhs_str,
+                                     const std::string_view rhs_str,
+                                     std::int32_t k) {
   if (lhs_str.empty() || rhs_str.empty()) {
     return {};
   }
@@ -256,8 +250,8 @@ std::vector<std::vector<LCSKppKmer>> ExtractKmers(ArgNucleicAcid lhs,
   return kmers;
 }
 
-std::vector<Match> CalcMatches(ArgNucleicAcid lhs, ArgNucleicAcid rhs,
-                               std::int32_t k) {
+std::vector<LCSKppMatch> CalcMatches(ArgNucleicAcid lhs, ArgNucleicAcid rhs,
+                                     std::int32_t k) {
   int n = lhs.last - lhs.first;
   constexpr std::int32_t sigma = 4;
   auto kmers = ExtractKmers(lhs, rhs, sigma, k);
@@ -270,8 +264,8 @@ struct LCSKppImplResult {
   std::int32_t score;
 };
 
-LCSKppImplResult LCSKppImpl(const std::vector<Match>& matches, std::int32_t k,
-                            std::int32_t n_cols) {
+LCSKppImplResult LCSKppImpl(const std::vector<LCSKppMatch>& matches,
+                            std::int32_t k, std::int32_t n_cols) {
   int n_matches = matches.size();
   std::vector<PrefixDb> MinYPrefix(n_cols + 1, {n_cols + 1, -1});
   MinYPrefix[0].column_idx = -1;
@@ -388,8 +382,9 @@ LCSKppImplResult LCSKppImpl(const std::vector<Match>& matches, std::int32_t k,
 }
 
 std::vector<MatchInterval> ReconstructIntervals(
-    const std::vector<Match>& matches, std::vector<std::int32_t> predecessor,
-    std::int32_t last_idx, std::int32_t k) {
+    const std::vector<LCSKppMatch>& matches,
+    std::vector<std::int32_t> predecessor, std::int32_t last_idx,
+    std::int32_t k) {
   std::vector<MatchInterval> match_intervals;
   MatchInterval cur_interval{
       .query_first = matches[last_idx].row_idx - k + 1,
@@ -452,11 +447,7 @@ LCSKppResult LCSKpp(ArgNucleicAcid rows, ArgNucleicAcid cols, std::int32_t k) {
     return {};
   }
 
-  auto&& [predecessor, last_idx, score] = LCSKppImpl(matches, k, n_cols);
-  auto match_intervals =
-      ReconstructIntervals(matches, predecessor, last_idx, k);
-
-  return {.score = score, .match_intervals = std::move(match_intervals)};
+  return LCSKpp(matches, k, n_cols);
 }
 
 LCSKppResult LCSKpp(const std::string_view rows, const std::string_view cols,
@@ -471,10 +462,7 @@ LCSKppResult LCSKpp(const std::string_view rows, const std::string_view cols,
     return {};
   }
 
-  auto&& [predecessor, last_idx, score] = LCSKppImpl(matches, k, n_cols);
-  auto match_intervals =
-      ReconstructIntervals(matches, predecessor, last_idx, k);
-
+  auto&& [score, match_intervals] = LCSKpp(matches, k, n_cols);
   for (std::size_t j = 1; j < match_intervals.size(); ++j) {
     DCHECK(rows.substr(match_intervals[j].query_first,
                        match_intervals[j].query_last -
@@ -495,6 +483,14 @@ LCSKppResult LCSKpp(const std::string_view rows, const std::string_view cols,
                match_intervals[j].target_first);
   }
 
+  return {.score = score, .match_intervals = std::move(match_intervals)};
+}
+
+LCSKppResult LCSKpp(const std::vector<LCSKppMatch>& matches, std::int32_t k,
+                    std::int32_t n_cols) {
+  auto&& [predecessor, last_idx, score] = LCSKppImpl(matches, k, n_cols);
+  auto match_intervals =
+      ReconstructIntervals(matches, predecessor, last_idx, k);
   return {.score = score, .match_intervals = std::move(match_intervals)};
 }
 

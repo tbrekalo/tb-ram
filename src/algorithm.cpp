@@ -116,27 +116,6 @@ auto CreateMinimap2Scorer(ChainConfig config, std::span<Match> matches,
   };
 }
 
-auto CreateLCSKppScorer(ChainConfig config,
-                        const std::unique_ptr<biosoup::NucleicAcid>& query,
-                        const std::unique_ptr<biosoup::NucleicAcid>& target,
-                        std::uint64_t strand) {
-  return [target = target.get(), query = query.get(), strand,
-          k = config.kmer_length](std::uint32_t query_first,
-                                  std::uint32_t query_last,
-                                  std::uint32_t target_first,
-                                  std::uint32_t target_last) -> LCSKppResult {
-    return LCSKpp(ArgNucleicAcid{.ptr = query,
-                                 .first = query_first,
-                                 .last = query_last,
-                                 .is_rc = false},
-                  ArgNucleicAcid{.ptr = target,
-                                 .first = target_first,
-                                 .last = target_last,
-                                 .is_rc = !strand},
-                  k);
-  };
-}
-
 std::vector<std::pair<std::uint64_t, std::uint64_t>> FindMatchGroupIntervals(
     ChainConfig config, std::span<const Match> matches) {
   std::vector<std::pair<std::uint64_t, std::uint64_t>> intervals;
@@ -672,21 +651,36 @@ std::vector<biosoup::Overlap> ChainLCSKpp(
     auto strand = matches[first_idx].strand();
     auto target = targets[matches[first_idx].rhs_id()].get();
 
-    auto query_minmax = std::ranges::minmax_element(
-        std::span(matches.begin() + first_idx, matches.begin() + last_idx),
-        std::less<>{}, &Match::lhs_position);
-    auto query_first = query_minmax.min->lhs_position();
-    auto query_last = query_minmax.max->lhs_position() + config.kmer_length;
-
+    auto query_first =
+        std::ranges::min_element(
+            std::span(matches.begin() + first_idx, matches.begin() + last_idx),
+            std::less<>{}, &Match::lhs_position)
+            ->lhs_position();
     auto target_minmax = std::ranges::minmax_element(
         std::span(matches.begin() + first_idx, matches.begin() + last_idx),
         std::less<>{}, &Match::rhs_position);
     auto target_first = target_minmax.min->rhs_position();
     auto target_last = target_minmax.max->rhs_position() + config.kmer_length;
 
-    auto [_, match_intervals] = CreateLCSKppScorer(
-        config, sequence, targets[matches[first_idx].rhs_id()], strand)(
-        query_first, query_last, target_first, target_last);
+    std::vector<LCSKppMatch> lcskpp_matches(last_idx - first_idx);
+    for (std::uint64_t idx = 0; idx < lcskpp_matches.size(); ++idx) {
+      auto row_idx =
+          static_cast<std::int32_t>(matches[first_idx + idx].lhs_position() +
+                                    config.kmer_length - 1 - query_first);
+      auto col_idx = strand ? static_cast<std::int32_t>(
+                                  matches[first_idx + idx].rhs_position() +
+                                  config.kmer_length - 1 - target_first)
+                            : static_cast<std::int32_t>(
+                                  (target_last - 1 -
+                                   matches[first_idx + idx].rhs_position()) +
+                                  config.kmer_length - 1);
+
+      lcskpp_matches[idx] = {.row_idx = row_idx, .col_idx = col_idx};
+    }
+    std::ranges::sort(lcskpp_matches);
+
+    auto [_, match_intervals] =
+        LCSKpp(lcskpp_matches, config.kmer_length, target_last - target_first);
 
     if (match_intervals.empty()) {
       continue;

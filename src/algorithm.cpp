@@ -117,8 +117,8 @@ auto CreateMinimap2Scorer(ChainConfig config, std::span<Match> matches,
 }
 
 auto CreateLCSKppScorer(ChainConfig config,
-                        const std::unique_ptr<biosoup::NucleicAcid>& target,
                         const std::unique_ptr<biosoup::NucleicAcid>& query,
+                        const std::unique_ptr<biosoup::NucleicAcid>& target,
                         std::uint64_t strand) {
   return [target = target.get(), query = query.get(), strand,
           k = config.kmer_length](std::uint32_t query_first,
@@ -685,7 +685,7 @@ std::vector<biosoup::Overlap> ChainLCSKpp(
     auto target_last = target_minmax.max->rhs_position() + config.kmer_length;
 
     auto [_, match_intervals] = CreateLCSKppScorer(
-        config, targets[matches[first_idx].rhs_id()], sequence, strand)(
+        config, sequence, targets[matches[first_idx].rhs_id()], strand)(
         query_first, query_last, target_first, target_last);
 
     if (match_intervals.empty()) {

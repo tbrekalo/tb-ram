@@ -123,8 +123,10 @@ class Index {
   }
 
   struct Hash {
+    using is_avalanching = void;
+
     std::size_t operator()(std::uint64_t key) const noexcept {
-      return std::hash<std::uint64_t>()(key >> 1);
+      return ankerl::unordered_dense::detail::wyhash::hash(key >> 1);
     }
   };
   struct KeyEqual {

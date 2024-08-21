@@ -707,6 +707,8 @@ std::vector<biosoup::Overlap> ChainLCSKpp(
       continue;
     }
 
+    DCHECK(std::ranges::is_sorted(match_intervals));
+
     auto n_matches =
         match_intervals[0].query_last - match_intervals[0].query_first;
     for (std::size_t i = 0, j = 1; i < match_intervals.size(); ++j) {

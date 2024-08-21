@@ -116,6 +116,27 @@ auto CreateMinimap2Scorer(ChainConfig config, std::span<Match> matches,
   };
 }
 
+auto CreateLCSKppScorer(ChainConfig config,
+                        const std::unique_ptr<biosoup::NucleicAcid>& query,
+                        const std::unique_ptr<biosoup::NucleicAcid>& target,
+                        std::uint64_t strand) {
+  return [target = target.get(), query = query.get(), strand,
+          k = config.kmer_length](
+             std::uint32_t query_first, std::uint32_t query_last,
+             std::uint32_t target_first,
+             std::uint32_t target_last) -> LCSKppResult {
+    return LCSKpp(ArgNucleicAcid{.ptr = query,
+                                 .first = query_first,
+                                 .last = query_last,
+                                 .is_rc = false},
+                  ArgNucleicAcid{.ptr = target,
+                                 .first = target_first,
+                                 .last = target_last,
+                                 .is_rc = !strand},
+                  k);
+  };
+}
+
 std::vector<std::pair<std::uint64_t, std::uint64_t>> FindMatchGroupIntervals(
     ChainConfig config, std::span<const Match> matches) {
   std::vector<std::pair<std::uint64_t, std::uint64_t>> intervals;

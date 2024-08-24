@@ -200,7 +200,7 @@ int main(int argc, char** argv) {
       cxxopts::value<std::vector<std::string>>());
   options.add_options("io")
     ("mode",
-      "ram operating mode (chain|match|overlap)",
+      "ram operating mode (chain|match|overlap|overlap-LCSKpp|overlap-ai)",
       cxxopts::value<Mode>()->default_value("overlap"));
   options.add_options("algorithm")
     ("k,kmer-length",

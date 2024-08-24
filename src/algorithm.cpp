@@ -108,11 +108,11 @@ auto CreateMinimap2Scorer(ChainConfig config, std::span<Match> matches,
                       config.kmer_length);
     }();
 
-    auto gama =
+    auto gamma =
         (*beta > 0 ? 0.01 * config.kmer_length * *beta + 0.5 * std::log2(*beta)
                    : 0.);
 
-    return alpha - gama;
+    return alpha - gamma;
   };
 }
 
@@ -714,16 +714,26 @@ std::vector<biosoup::Overlap> ChainLCSKpp(
              match_intervals[i + 1].target_first);
     }
 
-    auto n_matches =
+    double penality = 0;
+    double n_matches =
         match_intervals[0].query_last - match_intervals[0].query_first;
     for (std::size_t i = 0, j = 1; i < match_intervals.size(); ++j) {
+      auto query_gap = match_intervals[j].query_first -
+                       match_intervals[j - 1].query_last + 1;
+      auto target_gap = match_intervals[j].target_first -
+                        match_intervals[j - 1].target_last + 1;
+
+      auto band = static_cast<std::uint32_t>(std::abs(query_gap - target_gap));
+      auto gamma =
+          (band > 0 ? 0.01 * config.kmer_length * band + 0.5 * std::log2(band)
+                    : 0.);
+
       if (j != match_intervals.size() &&
-          std::max(match_intervals[j].query_first -
-                       match_intervals[j - 1].query_last + 1,
-                   match_intervals[j].target_first -
-                       match_intervals[j - 1].target_last + 1) <= config.gap) {
+          std::max(query_gap, target_gap) <= config.gap &&
+          band < config.bandwidth) {
         n_matches +=
             match_intervals[j].query_last - match_intervals[j].query_first;
+        penality += gamma;
         continue;
       }
 
@@ -741,7 +751,7 @@ std::vector<biosoup::Overlap> ChainLCSKpp(
 
       auto overlap_length = std::max(query_overlap_end - query_overlap_begin,
                                      target_overlap_end - target_overlap_begin);
-      if (n_matches >= config.min_matches) {
+      if (n_matches - penality >= config.min_matches) {
         candidate_overlaps.emplace_back(
             1.0 * n_matches / overlap_length,
             biosoup::Overlap(sequence->id, query_overlap_begin,
@@ -751,6 +761,7 @@ std::vector<biosoup::Overlap> ChainLCSKpp(
       }
       i = j;
       if (j != match_intervals.size()) {
+        penality = 0;
         n_matches =
             match_intervals[j].query_last - match_intervals[j].query_first;
       }

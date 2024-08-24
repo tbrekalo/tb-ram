@@ -25,6 +25,13 @@ struct MatchInterval {
   std::int32_t target_last;   // exclusive
 
   friend constexpr auto operator<=>(MatchInterval, MatchInterval) = default;
+
+  [[gnu::always_inline]] std::int32_t lhs_position() const noexcept {
+    return query_first;
+  }
+  [[gnu::always_inline]] std::int32_t rhs_position() const noexcept {
+    return target_first;
+  }
 };
 
 struct LCSKppResult {
@@ -44,7 +51,8 @@ LCSKppResult LCSKpp(ArgNucleicAcid lhs, ArgNucleicAcid rhs, std::int32_t k);
 LCSKppResult LCSKpp(const std::string_view rows, const std::string_view cols,
                     std::int32_t k);
 
-LCSKppResult LCSKpp(const std::vector<LCSKppMatch>& matches, std::int32_t k, std::int32_t n_cols);
+LCSKppResult LCSKpp(const std::vector<LCSKppMatch>& matches, std::int32_t k,
+                    std::int32_t n_cols);
 
 }  // namespace ram
 

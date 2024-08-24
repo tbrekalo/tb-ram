@@ -121,10 +121,10 @@ auto CreateLCSKppScorer(ChainConfig config,
                         const std::unique_ptr<biosoup::NucleicAcid>& target,
                         std::uint64_t strand) {
   return [target = target.get(), query = query.get(), strand,
-          k = config.kmer_length](
-             std::uint32_t query_first, std::uint32_t query_last,
-             std::uint32_t target_first,
-             std::uint32_t target_last) -> LCSKppResult {
+          k = config.kmer_length](std::uint32_t query_first,
+                                  std::uint32_t query_last,
+                                  std::uint32_t target_first,
+                                  std::uint32_t target_last) -> LCSKppResult {
     return LCSKpp(ArgNucleicAcid{.ptr = query,
                                  .first = query_first,
                                  .last = query_last,
@@ -707,7 +707,12 @@ std::vector<biosoup::Overlap> ChainLCSKpp(
       continue;
     }
 
-    DCHECK(std::ranges::is_sorted(match_intervals));
+    for (std::size_t i = 0; i + 1 < match_intervals.size(); ++i) {
+      DCHECK(match_intervals[i].query_last <=
+             match_intervals[i + 1].query_first);
+      DCHECK(match_intervals[i].target_last <=
+             match_intervals[i + 1].target_first);
+    }
 
     auto n_matches =
         match_intervals[0].query_last - match_intervals[0].query_first;

@@ -1,6 +1,7 @@
 // Copyright 2017: I. Katanic, G. Matula
 #include "ram/lcskpp.hpp"
 
+#include <algorithm>
 #include <format>
 #include <optional>
 
@@ -68,14 +69,14 @@ void RadixSort(std::vector<LCSKppKmer>& v, uint64_t maks) {
     maks >>= len;
   }
 
-  for (int block = 0; block < n_blocks; ++block) {
+  for (std::int32_t block = 0; block < n_blocks; ++block) {
     memset(pos, 0, sizeof pos);
 
     for (auto& x : v) {
       ++pos[((x.value >> (block * len)) & mask) + 1];
     }
 
-    for (int i = 0; i < sz; ++i) {
+    for (std::int32_t i = 0; i < sz; ++i) {
       pos[i + 1] += pos[i];
     }
 
@@ -135,7 +136,7 @@ std::vector<LCSKppMatch> MatchKmers(std::vector<std::vector<LCSKppKmer>> kmers,
     for (auto& match : dst) {
       pos[match.row_idx + 1]++;
     }
-    for (int i = 0; i < n; ++i) {
+    for (std::int32_t i = 0; i < n; ++i) {
       pos[i + 1] += pos[i];
     }
     for (auto& p : dst) {
@@ -158,7 +159,7 @@ std::vector<std::vector<LCSKppKmer>> ExtractKmers(std::string_view lhs_str,
 
   // std::pair<uint64_t, int> -> (hash, end_position)
   std::vector<std::vector<LCSKppKmer>> kmers(nBuckets);
-  for (int p = 0; p < nBuckets; ++p) {
+  for (std::int32_t p = 0; p < nBuckets; ++p) {
     kmers[p].reserve((n + m) / nBuckets);
   }
 
@@ -348,8 +349,8 @@ LCSKppImplResult LCSKppImpl(const std::vector<LCSKppMatch>& matches,
       int& cur_dp = match_dp[match_idx];
 
       // update MinYPrefix
-      for (int s = cur_dp; s > cur_dp - k && MinYPrefix[s].column_idx > col_idx;
-           --s) {
+      for (std::int32_t s = cur_dp;
+           s > cur_dp - k && MinYPrefix[s].column_idx > col_idx; --s) {
         MinYPrefix[s] = {col_idx, match_idx};
       }
 
@@ -394,43 +395,69 @@ std::vector<MatchInterval> ReconstructIntervals(
       .target_last = matches[last_idx].col_idx + 1,
   };
 
-  int i = last_idx;
-  while (i != -1) {
-    DCHECK(0 <= i && i < matches.size());
-    if ((predecessor[i] != -1 &&
-         matches[predecessor[i]].row_idx + 1 == matches[i].row_idx &&
-         matches[predecessor[i]].col_idx + 1 == matches[i].col_idx)) {
-      i = predecessor[i];
+  int idx = last_idx;
+  while (idx != -1) {
+    DCHECK(0 <= idx && idx < matches.size());
+    if ((predecessor[idx] != -1 &&
+         matches[predecessor[idx]].row_idx + 1 == matches[idx].row_idx &&
+         matches[predecessor[idx]].col_idx + 1 == matches[idx].col_idx)) {
+      idx = predecessor[idx];
       continue;
     }
 
     // non-overlapping match
-    DCHECK(predecessor[i] == -1 ||
-           (matches[predecessor[i]].row_idx + k <= matches[i].row_idx &&
-            matches[predecessor[i]].col_idx + k <= matches[i].col_idx));
+    DCHECK(predecessor[idx] == -1 ||
+           (matches[predecessor[idx]].row_idx + k <= matches[idx].row_idx &&
+            matches[predecessor[idx]].col_idx + k <= matches[idx].col_idx))
+        << std::format(
+               "pred_row_idx={} cur_row_idx={} prev_col_idx={} cur_col_idx={}",
+               matches[predecessor[idx]].row_idx, matches[idx].row_idx,
+               matches[predecessor[idx]].col_idx, matches[idx].col_idx);
 
-    cur_interval.query_first = matches[i].row_idx - k + 1;
-    cur_interval.target_first = matches[i].col_idx - k + 1;
+    cur_interval.query_first = matches[idx].row_idx - k + 1;
+    cur_interval.target_first = matches[idx].col_idx - k + 1;
 
     DCHECK(cur_interval.query_last - cur_interval.query_first > 0 &&
            cur_interval.target_last - cur_interval.target_first > 0);
 
+    DCHECK(cur_interval.query_first < cur_interval.query_last &&
+           cur_interval.target_first < cur_interval.target_last);
     match_intervals.push_back(cur_interval);
 
-    if (predecessor[i] != -1) {
+    if (predecessor[idx] != -1) {
       cur_interval = {
-          .query_first = matches[predecessor[i]].row_idx - k + 1,
-          .query_last = matches[predecessor[i]].row_idx + 1,
+          .query_first = matches[predecessor[idx]].row_idx - k + 1,
+          .query_last = matches[predecessor[idx]].row_idx + 1,
 
-          .target_first = matches[predecessor[i]].col_idx - k + 1,
-          .target_last = matches[predecessor[i]].col_idx + 1,
+          .target_first = matches[predecessor[idx]].col_idx - k + 1,
+          .target_last = matches[predecessor[idx]].col_idx + 1,
       };
     }
 
-    i = predecessor[i];
+    idx = predecessor[idx];
   }
 
   std::ranges::reverse(match_intervals);
+  for (std::size_t i = 0; i + 1 < match_intervals.size(); ++i) {
+    DCHECK(match_intervals[i].query_last <= match_intervals[i + 1].query_first)
+        << std::format(
+               "query_last={} query_first={} target_last={} target_first={}",
+               match_intervals[i].query_last,
+               match_intervals[i + 1].query_first,
+
+               match_intervals[i].target_last,
+               match_intervals[i + 1].target_first);
+    DCHECK(match_intervals[i].target_last <=
+           match_intervals[i + 1].target_first)
+        << std::format(
+               "target_last={} target_first={} query_last={} query_first={}",
+               match_intervals[i].target_last,
+               match_intervals[i + 1].target_first,
+
+               match_intervals[i].query_last,
+               match_intervals[i + 1].query_first);
+  }
+
   return match_intervals;
 };
 
@@ -488,9 +515,11 @@ LCSKppResult LCSKpp(const std::string_view rows, const std::string_view cols,
 
 LCSKppResult LCSKpp(const std::vector<LCSKppMatch>& matches, std::int32_t k,
                     std::int32_t n_cols) {
+  DCHECK(std::ranges::is_sorted(matches));
   auto&& [predecessor, last_idx, score] = LCSKppImpl(matches, k, n_cols);
   auto match_intervals =
       ReconstructIntervals(matches, predecessor, last_idx, k);
+
   return {.score = score, .match_intervals = std::move(match_intervals)};
 }
 

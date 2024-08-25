@@ -39,9 +39,12 @@ struct AlgoConfig {
 
 struct Kmer {
  public:
+  using value_type = std::uint64_t;
+  using origin_type = std::uint64_t;
+
   constexpr Kmer() {}
 
-  constexpr Kmer(std::uint64_t value, std::uint64_t origin)
+  constexpr Kmer(value_type value, origin_type origin)
       : value(value), origin(origin) {}
 
   constexpr std::uint32_t id() const noexcept {
@@ -54,8 +57,8 @@ struct Kmer {
 
   constexpr bool strand() const noexcept { return origin & 1; }
 
-  std::uint64_t value;
-  std::uint64_t origin;
+  value_type value;
+  origin_type origin;
 };
 
 inline constexpr std::uint64_t KmerValueProjection(const Kmer& kmer) noexcept {

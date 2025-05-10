@@ -86,6 +86,7 @@ local_settings.py
 nosetests.xml
 parts/
 perf.data*
+perf.hist*
 pip-delete-this-directory.txt
 pip-log.txt
 profile_default/

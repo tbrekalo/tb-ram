@@ -5,9 +5,9 @@
 
 #include <cstdint>
 #include <memory>
-#include <vector>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "biosoup/nucleic_acid.hpp"
 #include "biosoup/overlap.hpp"
@@ -20,10 +20,8 @@ class MinimizerEngine {
   MinimizerEngine(
       std::shared_ptr<thread_pool::ThreadPool> thread_pool = nullptr,
       std::uint32_t k = 15,  // element of [1, 31]
-      std::uint32_t w = 5,
-      std::uint32_t bandwidth = 500,
-      std::uint32_t chain = 4,
-      std::uint32_t matches = 100,
+      std::uint32_t w = 5, std::uint32_t bandwidth = 500,
+      std::uint32_t chain = 4, std::uint32_t matches = 100,
       std::uint32_t gap = 10000);
 
   MinimizerEngine(const MinimizerEngine&) = delete;
@@ -47,7 +45,7 @@ class MinimizerEngine {
   // find overlaps in preconstructed minimizer index
   std::vector<biosoup::Overlap> Map(
       const std::unique_ptr<biosoup::NucleicAcid>& sequence,
-      bool avoid_equal,  // ignore overlaps in which lhs_id == rhs_id
+      bool avoid_equal,      // ignore overlaps in which lhs_id == rhs_id
       bool avoid_symmetric,  // ignore overlaps in which lhs_id > rhs_id
       bool minhash = false,  // only lhs
       std::vector<std::uint32_t>* filtered = nullptr) const;
@@ -63,9 +61,7 @@ class MinimizerEngine {
    public:
     Kmer() = default;
     Kmer(std::uint64_t value, std::uint64_t origin)
-        : value(value),
-          origin(origin) {
-    }
+        : value(value), origin(origin) {}
 
     std::uint32_t id() const {
       return static_cast<std::uint32_t>(origin >> 32);
@@ -75,17 +71,11 @@ class MinimizerEngine {
       return static_cast<std::uint32_t>(origin) >> 1;
     }
 
-    bool strand() const {
-      return origin & 1;
-    }
+    bool strand() const { return origin & 1; }
 
-    static std::uint64_t SortByValue(const Kmer& kmer) {
-      return kmer.value;
-    }
+    static std::uint64_t SortByValue(const Kmer& kmer) { return kmer.value; }
 
-    static std::uint64_t SortByOrigin(const Kmer& kmer) {
-      return kmer.origin;
-    }
+    static std::uint64_t SortByOrigin(const Kmer& kmer) { return kmer.origin; }
 
     std::uint64_t value;
     std::uint64_t origin;
@@ -95,21 +85,15 @@ class MinimizerEngine {
    public:
     Match() = default;
     Match(std::uint64_t group, std::uint64_t positions)
-        : group(group),
-          positions(positions) {
-    }
+        : group(group), positions(positions) {}
 
     std::uint32_t rhs_id() const {
       return static_cast<std::uint32_t>(group >> 33);
     }
 
-    bool strand() const {
-      return (group >> 32) & 1;
-    }
+    bool strand() const { return (group >> 32) & 1; }
 
-    std::uint32_t diagonal() const {
-      return static_cast<std::uint32_t>(group);
-    }
+    std::uint32_t diagonal() const { return static_cast<std::uint32_t>(group); }
 
     std::uint32_t lhs_position() const {
       return static_cast<std::uint32_t>(positions >> 32);
@@ -119,9 +103,7 @@ class MinimizerEngine {
       return static_cast<std::uint32_t>(positions);
     }
 
-    static std::uint64_t SortByGroup(const Match& match) {
-      return match.group;
-    }
+    static std::uint64_t SortByGroup(const Match& match) { return match.group; }
     static std::uint64_t SortByPositions(const Match& match) {
       return match.positions;
     }
@@ -155,18 +137,15 @@ class MinimizerEngine {
       const std::unique_ptr<biosoup::NucleicAcid>& sequence,
       bool minhash = false) const;
 
-  std::vector<biosoup::Overlap> Chain(
-      std::uint64_t lhs_id,
-      std::vector<Match>&& matches) const;
+  std::vector<biosoup::Overlap> Chain(std::uint64_t lhs_id,
+                                      std::vector<Match>&& matches) const;
 
-  template<typename RandomAccessIterator, typename Compare>
-  static void RadixSort(
-      RandomAccessIterator first,
-      RandomAccessIterator last,
-      std::uint8_t max_bits,
-      Compare comp);  //  unary comparison function
+  template <typename RandomAccessIterator, typename Compare>
+  static void RadixSort(RandomAccessIterator first, RandomAccessIterator last,
+                        std::uint8_t max_bits,
+                        Compare comp);  //  unary comparison function
 
-  template<typename Compare>
+  template <typename Compare>
   static std::vector<std::uint64_t> LongestSubsequence(
       std::vector<Match>::const_iterator first,
       std::vector<Match>::const_iterator last,

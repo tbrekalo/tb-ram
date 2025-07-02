@@ -10,7 +10,6 @@
 #include "bioparser/fastq_parser.hpp"
 #include "biosoup/progress_bar.hpp"
 #include "biosoup/timer.hpp"
-
 #include "ram/minimizer_engine.hpp"
 
 std::atomic<std::uint32_t> biosoup::NucleicAcid::num_objects{0};
@@ -18,41 +17,43 @@ std::atomic<std::uint32_t> biosoup::NucleicAcid::num_objects{0};
 namespace {
 
 static struct option options[] = {
-  {"kmer-length", required_argument, nullptr, 'k'},
-  {"window-length", required_argument, nullptr, 'w'},
-  {"frequency-threshold", required_argument, nullptr, 'f'},
-  {"bandwidth", required_argument, nullptr, 'b'},
-  {"chain", required_argument, nullptr, 'c'},
-  {"matches", required_argument, nullptr, 'm'},
-  {"gap", required_argument, nullptr, 'g'},
-  {"minhash", no_argument, nullptr, 'M'},
-  {"threads", required_argument, nullptr, 't'},
-  {"version", no_argument, nullptr, 'v'},
-  {"help", no_argument, nullptr, 'h'},
-  {nullptr, 0, nullptr, 0}
-};
+    {"kmer-length", required_argument, nullptr, 'k'},
+    {"window-length", required_argument, nullptr, 'w'},
+    {"frequency-threshold", required_argument, nullptr, 'f'},
+    {"bandwidth", required_argument, nullptr, 'b'},
+    {"chain", required_argument, nullptr, 'c'},
+    {"matches", required_argument, nullptr, 'm'},
+    {"gap", required_argument, nullptr, 'g'},
+    {"minhash", no_argument, nullptr, 'M'},
+    {"threads", required_argument, nullptr, 't'},
+    {"version", no_argument, nullptr, 'v'},
+    {"help", no_argument, nullptr, 'h'},
+    {nullptr, 0, nullptr, 0}};
 
-std::unique_ptr<bioparser::Parser<biosoup::NucleicAcid>>
-    CreateParser(const std::string& path) {
-  auto is_suffix = [] (const std::string& s, const std::string& suff) {
-    return s.size() < suff.size() ? false :
-        s.compare(s.size() - suff.size(), suff.size(), suff) == 0;
+std::unique_ptr<bioparser::Parser<biosoup::NucleicAcid>> CreateParser(
+    const std::string& path) {
+  auto is_suffix = [](const std::string& s, const std::string& suff) {
+    return s.size() < suff.size()
+               ? false
+               : s.compare(s.size() - suff.size(), suff.size(), suff) == 0;
   };
 
   if (is_suffix(path, ".fasta") || is_suffix(path, ".fasta.gz") ||
-      is_suffix(path, ".fna")   || is_suffix(path, ".fna.gz")   ||
-      is_suffix(path, ".fa")    || is_suffix(path, ".fa.gz")) {
+      is_suffix(path, ".fna") || is_suffix(path, ".fna.gz") ||
+      is_suffix(path, ".fa") || is_suffix(path, ".fa.gz")) {
     try {
-      return bioparser::Parser<biosoup::NucleicAcid>::Create<bioparser::FastaParser>(path);  // NOLINT
+      return bioparser::Parser<biosoup::NucleicAcid>::Create<
+          bioparser::FastaParser>(path);  // NOLINT
     } catch (const std::invalid_argument& exception) {
       std::cerr << exception.what() << std::endl;
       return nullptr;
     }
   }
   if (is_suffix(path, ".fastq") || is_suffix(path, ".fastq.gz") ||
-      is_suffix(path, ".fq")    || is_suffix(path, ".fq.gz")) {
+      is_suffix(path, ".fq") || is_suffix(path, ".fq.gz")) {
     try {
-      return bioparser::Parser<biosoup::NucleicAcid>::Create<bioparser::FastqParser>(path);  // NOLINT
+      return bioparser::Parser<biosoup::NucleicAcid>::Create<
+          bioparser::FastqParser>(path);  // NOLINT
     } catch (const std::invalid_argument& exception) {
       std::cerr << exception.what() << std::endl;
       return nullptr;
@@ -62,50 +63,49 @@ std::unique_ptr<bioparser::Parser<biosoup::NucleicAcid>>
   std::cerr << "[ram::CreateParser] error: file " << path
             << " has unsupported format extension (valid extensions: .fasta, "
             << ".fasta.gz, .fna, .fna.gz, .fa, .fa.gz, .fastq, .fastq.gz, "
-            << ".fq, .fq.gz)"
-            << std::endl;
+            << ".fq, .fq.gz)" << std::endl;
   return nullptr;
 }
 
 void Help() {
-  std::cout <<
-      "usage: ram [options ...] <target> [<sequences>]\n"
-      "\n"
-      "  # default output is stdout\n"
-      "  <target>/<sequences> \n"
-      "    input file in FASTA/FASTQ format (can be compressed with gzip)\n"
-      "\n"
-      "  options:\n"
-      "    -k, --kmer-length <int>\n"
-      "      default: 15\n"
-      "      length of minimizers\n"
-      "    -w, --window-length <int>\n"
-      "      default: 5\n"
-      "      length of sliding window from which minimizers are sampled\n"
-      "    -f, --frequency-threshold <float>\n"
-      "      default: 0.001\n"
-      "      threshold for ignoring most frequent minimizers\n"
-      "    --bandwidth <int>\n"
-      "      default: 500\n"
-      "      size of bandwidth in which minimizer hits can be chained\n"
-      "    --chain <int>\n"
-      "      default: 4\n"
-      "      minimal number of chained minimizer hits in overlap\n"
-      "    --matches <int>\n"
-      "      default: 100\n"
-      "      minimal number of matching bases in overlap\n"
-      "    --gap <int>\n"
-      "      default: 10000\n"
-      "      maximal gap between minimizer hits in a chain\n"
-      "    --minhash\n"
-      "      use only a portion of all minimizers\n"
-      "    -t, --threads <int>\n"
-      "      default: 1\n"
-      "      number of threads\n"
-      "    --version\n"
-      "      prints the version number\n"
-      "    -h, --help\n"
-      "      prints the usage\n";
+  std::cout
+      << "usage: ram [options ...] <target> [<sequences>]\n"
+         "\n"
+         "  # default output is stdout\n"
+         "  <target>/<sequences> \n"
+         "    input file in FASTA/FASTQ format (can be compressed with gzip)\n"
+         "\n"
+         "  options:\n"
+         "    -k, --kmer-length <int>\n"
+         "      default: 15\n"
+         "      length of minimizers\n"
+         "    -w, --window-length <int>\n"
+         "      default: 5\n"
+         "      length of sliding window from which minimizers are sampled\n"
+         "    -f, --frequency-threshold <float>\n"
+         "      default: 0.001\n"
+         "      threshold for ignoring most frequent minimizers\n"
+         "    --bandwidth <int>\n"
+         "      default: 500\n"
+         "      size of bandwidth in which minimizer hits can be chained\n"
+         "    --chain <int>\n"
+         "      default: 4\n"
+         "      minimal number of chained minimizer hits in overlap\n"
+         "    --matches <int>\n"
+         "      default: 100\n"
+         "      minimal number of matching bases in overlap\n"
+         "    --gap <int>\n"
+         "      default: 10000\n"
+         "      maximal gap between minimizer hits in a chain\n"
+         "    --minhash\n"
+         "      use only a portion of all minimizers\n"
+         "    -t, --threads <int>\n"
+         "      default: 1\n"
+         "      number of threads\n"
+         "    --version\n"
+         "      prints the version number\n"
+         "    -h, --help\n"
+         "      prints the usage\n";
 }
 
 }  // namespace
@@ -127,18 +127,41 @@ int main(int argc, char** argv) {
   char arg;
   while ((arg = getopt_long(argc, argv, optstr, options, nullptr)) != -1) {
     switch (arg) {
-      case 'k': k = std::atoi(optarg); break;
-      case 'w': w = std::atoi(optarg); break;
-      case 'b': bandwidth = std::atoi(optarg); break;
-      case 'c': chain = std::atoi(optarg); break;
-      case 'm': matches = std::atoi(optarg); break;
-      case 'g': gap = std::atoi(optarg); break;
-      case 'f': frequency = std::atof(optarg); break;
-      case 'M': minhash = true; break;
-      case 't': num_threads = std::atoi(optarg); break;
-      case 'v': std::cout << VERSION << std::endl; return 0;
-      case 'h': Help(); return 0;
-      default: return 1;
+      case 'k':
+        k = std::atoi(optarg);
+        break;
+      case 'w':
+        w = std::atoi(optarg);
+        break;
+      case 'b':
+        bandwidth = std::atoi(optarg);
+        break;
+      case 'c':
+        chain = std::atoi(optarg);
+        break;
+      case 'm':
+        matches = std::atoi(optarg);
+        break;
+      case 'g':
+        gap = std::atoi(optarg);
+        break;
+      case 'f':
+        frequency = std::atof(optarg);
+        break;
+      case 'M':
+        minhash = true;
+        break;
+      case 't':
+        num_threads = std::atoi(optarg);
+        break;
+      case 'v':
+        std::cout << VERSION << std::endl;
+        return 0;
+      case 'h':
+        Help();
+        return 0;
+      default:
+        return 1;
     }
   }
 
@@ -175,14 +198,8 @@ int main(int argc, char** argv) {
   }
 
   auto thread_pool = std::make_shared<thread_pool::ThreadPool>(num_threads);
-  ram::MinimizerEngine minimizer_engine{
-      thread_pool,
-      k,
-      w,
-      bandwidth,
-      chain,
-      matches,
-      gap};
+  ram::MinimizerEngine minimizer_engine{thread_pool, k,       w,  bandwidth,
+                                        chain,       matches, gap};
 
   biosoup::Timer timer{};
 
@@ -202,17 +219,15 @@ int main(int argc, char** argv) {
     }
 
     std::cerr << "[ram::] parsed " << targets.size() << " targets "
-              << std::fixed << timer.Stop() << "s"
-              << std::endl;
+              << std::fixed << timer.Stop() << "s" << std::endl;
 
     timer.Start();
 
     minimizer_engine.Minimize(targets.begin(), targets.end(), minhash);
     minimizer_engine.Filter(frequency);
 
-    std::cerr << "[ram::] minimized targets "
-              << std::fixed << timer.Stop() << "s"
-              << std::endl;
+    std::cerr << "[ram::] minimized targets " << std::fixed << timer.Stop()
+              << "s" << std::endl;
 
     std::uint64_t num_targets = biosoup::NucleicAcid::num_objects;
     biosoup::NucleicAcid::num_objects = 0;
@@ -238,15 +253,14 @@ int main(int argc, char** argv) {
           continue;
         }
         futures.emplace_back(thread_pool->Submit(
-            [&] (const std::unique_ptr<biosoup::NucleicAcid>& sequence)
+            [&](const std::unique_ptr<biosoup::NucleicAcid>& sequence)
                 -> std::vector<biosoup::Overlap> {
               return minimizer_engine.Map(sequence, is_ava, is_ava, minhash);
             },
             std::ref(it)));
       }
 
-      biosoup::ProgressBar bar{
-          static_cast<std::uint32_t>(futures.size()), 16};
+      biosoup::ProgressBar bar{static_cast<std::uint32_t>(futures.size()), 16};
 
       std::uint64_t rhs_offset = targets.front()->id;
       std::uint64_t lhs_offset = sequences.front()->id;
@@ -254,25 +268,20 @@ int main(int argc, char** argv) {
         for (const auto& jt : it.get()) {
           std::cout << sequences[jt.lhs_id - lhs_offset]->name << "\t"
                     << sequences[jt.lhs_id - lhs_offset]->inflated_len << "\t"
-                    << jt.lhs_begin << "\t"
-                    << jt.lhs_end << "\t"
+                    << jt.lhs_begin << "\t" << jt.lhs_end << "\t"
                     << (jt.strand ? "+" : "-") << "\t"
                     << targets[jt.rhs_id - rhs_offset]->name << "\t"
                     << targets[jt.rhs_id - rhs_offset]->inflated_len << "\t"
-                    << jt.rhs_begin << "\t"
-                    << jt.rhs_end << "\t"
-                    << jt.score << "\t"
-                    << std::max(
-                          jt.lhs_end - jt.lhs_begin,
-                          jt.rhs_end - jt.rhs_begin) << "\t"
-                    << 255
-                    << std::endl;
+                    << jt.rhs_begin << "\t" << jt.rhs_end << "\t" << jt.score
+                    << "\t"
+                    << std::max(jt.lhs_end - jt.lhs_begin,
+                                jt.rhs_end - jt.rhs_begin)
+                    << "\t" << 255 << std::endl;
         }
 
         if (++bar) {
           std::cerr << "[ram::] mapped " << bar.event_counter() << " sequences "
-                    << "[" << bar << "] "
-                    << std::fixed << timer.Lap() << "s"
+                    << "[" << bar << "] " << std::fixed << timer.Lap() << "s"
                     << "\r";
         }
       }

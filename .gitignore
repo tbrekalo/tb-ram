@@ -1,2 +1,4 @@
-# Compiled Object files
+.cache
 build/
+data
+perf*

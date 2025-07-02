@@ -7,6 +7,46 @@
 
 namespace ram {
 
+namespace {
+
+template <typename RandomAccessIterator, typename Compare>
+void RadixSort(RandomAccessIterator first, RandomAccessIterator last,
+               std::uint8_t max_bits,
+               Compare comp) {  //  unary comparison function
+  if (first >= last) {
+    return;
+  }
+
+  std::vector<typename std::iterator_traits<RandomAccessIterator>::value_type>
+      tmp(last - first);  // NOLINT
+  auto begin = tmp.begin();
+  auto end = tmp.end();
+
+  std::uint64_t buckets[0x100]{};  // 256 b
+  std::uint8_t shift = 0;
+  for (; shift < max_bits; shift += 8) {
+    std::uint64_t counts[0x100]{};
+    for (auto it = first; it != last; ++it) {
+      ++counts[comp(*it) >> shift & 0xFF];
+    }
+    for (std::uint64_t i = 0, j = 0; i < 0x100; j += counts[i++]) {
+      buckets[i] = j;
+    }
+    for (auto it = first; it != last; ++it) {
+      *(begin + buckets[comp(*it) >> shift & 0xFF]++) = *it;
+    }
+    std::swap(begin, first);
+    std::swap(end, last);
+  }
+
+  if (shift / 8 & 1) {  // copy the sorted array for odd cases
+    for (; first != last; ++first, ++begin) {
+      *begin = *first;
+    }
+  }
+}
+}  // namespace
+
 MinimizerEngine::MinimizerEngine(
     std::shared_ptr<thread_pool::ThreadPool> thread_pool, std::uint32_t k,
     std::uint32_t w, std::uint32_t bandwidth, std::uint32_t chain,
@@ -490,44 +530,6 @@ std::vector<MinimizerEngine::Kmer> MinimizerEngine::Minimize(
   }
 
   return dst;
-}
-
-template <typename RandomAccessIterator, typename Compare>
-void MinimizerEngine::RadixSort(RandomAccessIterator first,
-                                RandomAccessIterator last,
-                                std::uint8_t max_bits,
-                                Compare comp) {  //  unary comparison function
-  if (first >= last) {
-    return;
-  }
-
-  std::vector<typename std::iterator_traits<RandomAccessIterator>::value_type>
-      tmp(last - first);  // NOLINT
-  auto begin = tmp.begin();
-  auto end = tmp.end();
-
-  std::uint64_t buckets[0x100]{};  // 256 b
-  std::uint8_t shift = 0;
-  for (; shift < max_bits; shift += 8) {
-    std::uint64_t counts[0x100]{};
-    for (auto it = first; it != last; ++it) {
-      ++counts[comp(*it) >> shift & 0xFF];
-    }
-    for (std::uint64_t i = 0, j = 0; i < 0x100; j += counts[i++]) {
-      buckets[i] = j;
-    }
-    for (auto it = first; it != last; ++it) {
-      *(begin + buckets[comp(*it) >> shift & 0xFF]++) = *it;
-    }
-    std::swap(begin, first);
-    std::swap(end, last);
-  }
-
-  if (shift / 8 & 1) {  // copy the sorted array for odd cases
-    for (; first != last; ++first, ++begin) {
-      *begin = *first;
-    }
-  }
 }
 
 template <typename Compare>

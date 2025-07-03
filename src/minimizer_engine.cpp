@@ -250,11 +250,11 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
   };
 
   struct Hit {
-    const Kmer* kmer;
+    Kmer kmer;
     std::uint32_t n;
     const uint64_t* origins;
 
-    Hit(const Kmer* kmer, std::uint32_t n, const uint64_t* origins)
+    Hit(Kmer kmer, std::uint32_t n, const uint64_t* origins)
         : kmer(kmer), n(n), origins(origins) {}
 
     bool operator<(const Hit& other) const { return n < other.n; }
@@ -265,13 +265,14 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
   std::uint32_t prev = 0;
 
   sketch.emplace_back(-1, sequence->inflated_len << 1);  // stop dummy
+  std::vector<Hit> hits;
 
   for (const auto& kmer : sketch) {
     std::uint32_t i = kmer.value & mask;
     const uint64_t* origins = nullptr;
     auto n = index_[i].Find(kmer.value, &origins);
     if (n > occurrence_) {
-      filtered_hits.emplace_back(&kmer, n, origins);
+      filtered_hits.emplace_back(kmer, n, origins);
       if (filtered) {
         filtered->emplace_back(kmer.position());
       }
@@ -285,15 +286,18 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
       std::partial_sort(filtered_hits.begin(), filtered_hits.begin() + rescuees,
                         filtered_hits.end());
       for (auto it = filtered_hits.begin(); rescuees; rescuees--, ++it) {
-        for (; it->n; it->n--, ++it->origins) {
-          add_match(*it->kmer, *it->origins);
-        }
+        hits.emplace_back(it->kmer, it->n, it->origins);
       }
     }
     filtered_hits.clear();
     prev = kmer.position();
+    hits.emplace_back(kmer, n, origins);
+  }
 
-    for (; n; n--, ++origins) {
+  std::ranges::sort(hits, std::less<>{},
+                    [](Hit const& hit) { return hit.kmer.value; });
+  for (auto [kmer, n, origins] : hits) {
+    for (; n > 0; --n, ++origins) {
       add_match(kmer, *origins);
     }
   }

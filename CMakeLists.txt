@@ -6,7 +6,7 @@ project(ram VERSION 2.2.0
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -pedantic")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
@@ -25,7 +25,6 @@ option(ram_build_exe "Build executable" ${ram_main_project})
 option(ram_build_tests "Build unit tests" ${ram_main_project})
 
 find_package(biosoup 0.10.0 QUIET)
-find_package(thread_pool 4.0.0 QUIET)
 
 if (NOT biosoup_FOUND)
   if (ram_install)
@@ -47,24 +46,22 @@ if (NOT biosoup_FOUND)
   endif ()
 endif ()
 
-if (NOT thread_pool_FOUND)
-  if (ram_install)
-    message(FATAL_ERROR "Missing package thread_pool!")
-  endif ()
+if (ram_install)
+  message(FATAL_ERROR "Missing package thread_pool!")
+endif ()
 
-  FetchContent_Declare(
-    thread_pool
-    GIT_REPOSITORY https://github.com/rvaser/thread_pool
-    GIT_TAG 4.0.0)
+FetchContent_Declare(
+  thread_pool
+  GIT_REPOSITORY https://github.com/tbrekalo/thread_pool
+  GIT_TAG 5.0.0)
 
-  FetchContent_GetProperties(thread_pool)
-  if (NOT thread_pool_POPULATED)
-    FetchContent_Populate(thread_pool)
-    add_subdirectory(
-      ${thread_pool_SOURCE_DIR}
-      ${thread_pool_BINARY_DIR}
-      EXCLUDE_FROM_ALL)
-  endif ()
+FetchContent_GetProperties(thread_pool)
+if (NOT thread_pool_POPULATED)
+  FetchContent_Populate(thread_pool)
+  add_subdirectory(
+    ${thread_pool_SOURCE_DIR}
+    ${thread_pool_BINARY_DIR}
+    EXCLUDE_FROM_ALL)
 endif ()
 
 if (ram_build_exe OR ram_build_tests)

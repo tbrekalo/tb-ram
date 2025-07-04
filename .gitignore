@@ -1,4 +1,5 @@
 .cache
-build/
+build*
 data
 perf*
+.gdb_history

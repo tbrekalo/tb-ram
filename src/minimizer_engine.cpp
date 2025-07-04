@@ -2,8 +2,10 @@
 
 #include "ram/minimizer_engine.hpp"
 
+#include <algorithm>
 #include <deque>
 #include <iterator>
+#include <span>
 #include <stdexcept>
 
 namespace ram {
@@ -266,13 +268,22 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
   std::uint64_t mask = index_.size() - 1;
   std::uint32_t prev = 0;
 
+  RadixSort(sketch.begin(), sketch.end(), k_ * 2, Kmer::SortByValue);
   sketch.emplace_back(-1, sequence->inflated_len << 1);  // stop dummy
-  std::vector<Hit> hits;
+  std::vector<Hit> to_add, hits;
 
-  for (const auto& kmer : sketch) {
-    std::uint32_t i = kmer.value & mask;
+  for (const auto kmer : sketch) {
+    std::uint32_t group = kmer.value & mask;
     const uint64_t* origins = nullptr;
-    auto n = index_[i].Find(kmer.value, &origins);
+    auto n = index_[group].Find(kmer.value, &origins);
+    hits.emplace_back(kmer, n, origins);
+  }
+
+  std::ranges::sort(
+      std::span(hits.begin(), hits.end() - 1), std::less<>{},
+      [](Hit const& hit) -> std::uint32_t { return hit.kmer.position(); });
+
+  for (auto [kmer, n, origins] : hits) {
     if (n > occurrence_) {
       filtered_hits.emplace_back(kmer, n, origins);
       if (filtered) {
@@ -288,17 +299,17 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
       std::partial_sort(filtered_hits.begin(), filtered_hits.begin() + rescuees,
                         filtered_hits.end());
       for (auto it = filtered_hits.begin(); rescuees; rescuees--, ++it) {
-        hits.emplace_back(it->kmer, it->n, it->origins);
+        to_add.emplace_back(it->kmer, it->n, it->origins);
       }
     }
     filtered_hits.clear();
     prev = kmer.position();
-    hits.emplace_back(kmer, n, origins);
+    to_add.emplace_back(kmer, n, origins);
   }
 
-  std::ranges::sort(hits, std::less<>{},
-                    [](Hit const& hit) { return hit.kmer.value; });
-  for (auto [kmer, n, origins] : hits) {
+  std::ranges::sort(to_add, std::less<>{},
+                    [](Hit const& hit) -> bool { return hit.kmer.value; });
+  for (auto [kmer, n, origins] : to_add) {
     for (; n > 0; --n, ++origins) {
       add_match(kmer, *origins);
     }

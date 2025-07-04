@@ -3,13 +3,14 @@
 #include "ram/minimizer_engine.hpp"
 
 #include <deque>
+#include <iterator>
 #include <stdexcept>
 
 namespace ram {
 
 namespace {
 
-template <typename RandomAccessIterator, typename Compare>
+template <std::random_access_iterator RandomAccessIterator, typename Compare>
 void RadixSort(RandomAccessIterator first, RandomAccessIterator last,
                std::uint8_t max_bits,
                Compare comp) {  //  unary comparison function
@@ -45,6 +46,7 @@ void RadixSort(RandomAccessIterator first, RandomAccessIterator last,
     }
   }
 }
+
 }  // namespace
 
 MinimizerEngine::MinimizerEngine(

@@ -3,6 +3,7 @@
 #include "ram/minimizer_engine.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <deque>
 #include <iterator>
 #include <span>
@@ -476,7 +477,7 @@ std::vector<biosoup::Overlap> MinimizerEngine::Chain(
 
 std::vector<MinimizerEngine::Kmer> MinimizerEngine::Minimize(
     const std::unique_ptr<biosoup::NucleicAcid>& sequence, bool minhash) const {
-  if (sequence->inflated_len < k_) {
+  if (sequence->inflated_len < k_ + w_ - 1U) {
     return std::vector<Kmer>{};
   }
 
@@ -493,16 +494,17 @@ std::vector<MinimizerEngine::Kmer> MinimizerEngine::Minimize(
     return key;
   };
 
-  std::deque<Kmer> window;
+  std::int32_t w_begin = 0, w_end = 0;
+  std::vector<Kmer> kmers(sequence->inflated_len - k_ + 1U);
   auto window_add = [&](std::uint64_t value, std::uint64_t location) -> void {
-    while (!window.empty() && window.back().value > value) {
-      window.pop_back();
+    while (w_begin < w_end && kmers[w_end - 1].value > value) {
+      --w_end;
     }
-    window.emplace_back(value, location);
+    kmers[w_end++] = Kmer(value, location);
   };
   auto window_update = [&](std::uint32_t position) -> void {
-    while (!window.empty() && (window.front().position()) < position) {
-      window.pop_front();
+    while (w_begin < w_end && kmers[w_begin].position() < position) {
+      ++w_begin;
     }
   };
 
@@ -512,34 +514,40 @@ std::vector<MinimizerEngine::Kmer> MinimizerEngine::Minimize(
   std::uint64_t id = static_cast<std::uint64_t>(sequence->id) << 32;
   std::uint64_t is_stored = 1ULL << 63;
 
-  std::vector<Kmer> dst;
-
-  for (std::uint32_t i = 0; i < sequence->inflated_len; ++i) {
+  for (std::uint32_t i = 0, j = 0; i < sequence->inflated_len; ++i) {
     std::uint64_t c = sequence->Code(i);
     minimizer = ((minimizer << 2) | c) & mask;
     reverse_minimizer = (reverse_minimizer >> 2) | ((c ^ 3) << shift);
-    if (i >= k_ - 1U) {
-      if (minimizer < reverse_minimizer) {
-        window_add(hash(minimizer), (i - (k_ - 1U)) << 1 | 0);
-      } else if (minimizer > reverse_minimizer) {
-        window_add(hash(reverse_minimizer), (i - (k_ - 1U)) << 1 | 1);
-      }
+    if (i + 1U < k_) [[unlikely]] {
+      continue;
     }
-    if (i >= (k_ - 1U) + (w_ - 1U)) {
-      for (auto it = window.begin(); it != window.end(); ++it) {
-        if (it->value != window.front().value) {
-          break;
-        }
-        if (it->origin & is_stored) {
-          continue;
-        }
-        dst.emplace_back(it->value, id | it->origin);
-        it->origin |= is_stored;
-      }
-      window_update(i - (k_ - 1U) - (w_ - 1U) + 1);
-    }
+
+    std::int32_t flag = minimizer < reverse_minimizer;
+    kmers[j++] = Kmer(hash(minimizer * flag + reverse_minimizer * (1 - flag)),
+                      id | (i - (k_ - 1U)) << 1 | (1 - flag));
   }
 
+  std::int32_t n = 0;
+  std::vector<Kmer> dst(kmers.size() - w_ + 1U);
+  for (std::uint32_t i = 0; i < kmers.size(); ++i) {
+    window_add(kmers[i].value, kmers[i].origin);
+    if (i + 1U < w_) [[unlikely]] {
+      continue;
+    }
+    for (std::int32_t idx = w_begin; idx < w_end; ++idx) {
+      if (kmers[idx].value != kmers[w_begin].value) {
+        break;
+      }
+      if (kmers[idx].origin & is_stored) {
+        continue;
+      }
+      dst[n++] = kmers[idx];
+      kmers[idx].origin |= is_stored;
+    }
+    window_update(i - (w_ - 1U) + 1);
+  }
+
+  dst.resize(n);
   if (minhash) {
     RadixSort(dst.begin(), dst.end(), k_ * 2, Kmer::SortByValue);
     dst.resize(sequence->inflated_len / k_);

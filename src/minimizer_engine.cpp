@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <deque>
 #include <iterator>
 #include <span>
 #include <stdexcept>

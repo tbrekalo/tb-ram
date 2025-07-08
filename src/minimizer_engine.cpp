@@ -13,9 +13,10 @@ namespace ram {
 namespace {
 
 template <std::random_access_iterator RandomAccessIterator, typename Compare>
-void RadixSort(RandomAccessIterator first, RandomAccessIterator last,
-               std::uint8_t max_bits,
-               Compare comp) {  //  unary comparison function
+[[gnu::noinline]] void RadixSort(RandomAccessIterator first,
+                                 RandomAccessIterator last,
+                                 std::uint8_t max_bits,
+                                 Compare comp) {  //  unary comparison function
   if (first >= last) {
     return;
   }

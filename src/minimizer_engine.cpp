@@ -4,8 +4,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <stdexcept>
+#include <vector>
 
 namespace ram {
 
@@ -18,6 +20,9 @@ template <class T, class Compare>
     return;
   }
 
+
+  alignas(8) std::uint64_t counts[0x100]{};
+
   std::vector<T> buffer(source.size());
   auto to_sort = std::span(source);
   auto sorted = std::span(buffer);
@@ -25,7 +30,7 @@ template <class T, class Compare>
   std::uint8_t shift = 0;
   std::uint64_t buckets[0x100]{};  // 256 b
   for (; shift < max_bits; shift += 8) {
-    std::uint64_t counts[0x100]{};
+    std::memset(counts, 0, sizeof(counts));
     for (auto it : to_sort) {
       ++counts[std::invoke(comp, it) >> shift & 0xFF];
     }
@@ -256,6 +261,7 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
     std::uint32_t n;
     const uint64_t* origins;
 
+    Hit() = default;
     Hit(Kmer kmer, std::uint32_t n, const uint64_t* origins)
         : kmer(kmer), n(n), origins(origins) {}
 
@@ -277,8 +283,8 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
     hits.emplace_back(kmer, n, origins);
   }
 
-  std::ranges::sort(
-      std::span(hits.begin(), hits.end() - 1), std::less<>{},
+  RadixSort(
+      std::span(hits.begin(), hits.end() - 1), 32,
       [](Hit const& hit) -> std::uint32_t { return hit.kmer.position(); });
 
   for (auto [kmer, n, origins] : hits) {
@@ -305,8 +311,8 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
     to_add.emplace_back(kmer, n, origins);
   }
 
-  std::ranges::sort(to_add, std::less<>{},
-                    [](Hit const& hit) -> bool { return hit.kmer.value; });
+  RadixSort(std::span(to_add), 2 * k_,
+            [](Hit const& hit) -> bool { return hit.kmer.value; });
   for (auto [kmer, n, origins] : to_add) {
     for (; n > 0; --n, ++origins) {
       add_match(kmer, *origins);

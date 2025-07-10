@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <iterator>
 #include <span>
 #include <stdexcept>
 
@@ -12,51 +11,41 @@ namespace ram {
 
 namespace {
 
-template <std::random_access_iterator RandomAccessIterator, typename Compare>
-[[gnu::noinline]] void RadixSort(RandomAccessIterator first,
-                                 RandomAccessIterator last,
-                                 std::uint8_t max_bits,
+template <class T, class Compare>
+[[gnu::noinline]] void RadixSort(std::span<T> source, std::uint8_t max_bits,
                                  Compare comp) {  //  unary comparison function
-  using value_type =
-      typename std::iterator_traits<RandomAccessIterator>::value_type;
-  if (first >= last) {
+  if (source.empty()) {
     return;
   }
 
-  auto source_filled = 1;
-  auto const n_entries =
-      std::make_unsigned_t<decltype(last - first)>(last - first);
-  std::vector<value_type> tmp(n_entries);
-  auto begin = tmp.begin();
-  auto end = tmp.end();
+  std::vector<T> buffer(source.size());
+  auto to_sort = std::span(source);
+  auto sorted = std::span(buffer);
 
-  std::uint64_t buckets[0x100]{};  // 256 b
   std::uint8_t shift = 0;
+  std::uint64_t buckets[0x100]{};  // 256 b
   for (; shift < max_bits; shift += 8) {
     std::uint64_t counts[0x100]{};
-    for (auto it = first; it != last; ++it) {
-      ++counts[comp(*it) >> shift & 0xFF];
-
+    for (auto it : to_sort) {
+      ++counts[std::invoke(comp, it) >> shift & 0xFF];
     }
-    if (counts[std::invoke(comp, *first) >> shift & 0xFF] == n_entries) {
+    if (counts[std::invoke(comp, to_sort.front()) >> shift & 0xFF] ==
+        source.size()) {
       continue;
     }
 
     for (std::uint64_t i = 0, j = 0; i < 0x100; j += counts[i++]) {
       buckets[i] = j;
     }
-    for (auto it = first; it != last; ++it) {
-      *(begin + buckets[comp(*it) >> shift & 0xFF]++) = *it;
+    for (auto it : to_sort) {
+      sorted[buckets[std::invoke(comp, it) >> shift & 0xFF]++] = it;
     }
-    std::swap(begin, first);
-    std::swap(end, last);
-    source_filled ^= 1;
+
+    std::swap(sorted, to_sort);
   }
 
-  if (!source_filled) {  // copy the sorted array for odd cases
-    for (; first != last; ++first, ++begin) {
-      *begin = *first;
-    }
+  if (to_sort.data() != source.data()) {  // copy the sorted array for odd cases
+    std::ranges::copy(to_sort, source.begin());
   }
 }
 
@@ -141,9 +130,7 @@ void MinimizerEngine::Minimize(
               return std::make_pair(0, 0);
             }
 
-            RadixSort(minimizers[i].begin(), minimizers[i].end(), k_ * 2,
-                      Kmer::SortByValue);
-
+            RadixSort(std::span(minimizers[i]), k_ * 2, Kmer::SortByValue);
             minimizers[i].emplace_back(-1, -1);  // stop dummy
 
             std::size_t num_origins = 0;
@@ -279,7 +266,7 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
   std::uint64_t mask = index_.size() - 1;
   std::uint32_t prev = 0;
 
-  RadixSort(sketch.begin(), sketch.end(), k_ * 2, Kmer::SortByValue);
+  RadixSort(std::span(sketch), k_ * 2, Kmer::SortByValue);
   sketch.emplace_back(-1, sequence->inflated_len << 1);  // stop dummy
   std::vector<Hit> to_add, hits;
 
@@ -342,8 +329,8 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
     return std::vector<biosoup::Overlap>{};
   }
 
-  RadixSort(lhs_sketch.begin(), lhs_sketch.end(), k_ * 2, Kmer::SortByValue);
-  RadixSort(rhs_sketch.begin(), rhs_sketch.end(), k_ * 2, Kmer::SortByValue);
+  RadixSort(std::span(lhs_sketch), k_ * 2, Kmer::SortByValue);
+  RadixSort(std::span(rhs_sketch), k_ * 2, Kmer::SortByValue);
 
   std::uint64_t rhs_id = rhs->id;
 
@@ -380,7 +367,7 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
 
 std::vector<biosoup::Overlap> MinimizerEngine::Chain(
     std::uint64_t lhs_id, std::vector<Match>&& matches) const {
-  RadixSort(matches.begin(), matches.end(), 64, Match::SortByGroup);
+  RadixSort(std::span(matches), 64, &Match::group);
   matches.emplace_back(-1, -1);  // stop dummy
 
   std::vector<std::pair<std::uint64_t, std::uint64_t>> intervals;
@@ -409,9 +396,8 @@ std::vector<biosoup::Overlap> MinimizerEngine::Chain(
       continue;
     }
 
-    RadixSort(matches.begin() + j, matches.begin() + i, 64,
-              Match::SortByPositions);
-
+    RadixSort(std::span(matches.begin() + j, matches.begin() + i), 64,
+              &Match::positions);
     std::uint64_t strand = matches[j].strand();
 
     std::vector<std::uint64_t> indices;
@@ -559,9 +545,9 @@ std::vector<MinimizerEngine::Kmer> MinimizerEngine::Minimize(
 
   dst.resize(n);
   if (minhash) {
-    RadixSort(dst.begin(), dst.end(), k_ * 2, Kmer::SortByValue);
+    RadixSort(std::span(dst), k_ * 2, Kmer::SortByValue);
     dst.resize(sequence->inflated_len / k_);
-    RadixSort(dst.begin(), dst.end(), 64, Kmer::SortByOrigin);
+    RadixSort(std::span(dst), 64, Kmer::SortByOrigin);
   }
 
   return dst;

@@ -17,12 +17,16 @@ template <std::random_access_iterator RandomAccessIterator, typename Compare>
                                  RandomAccessIterator last,
                                  std::uint8_t max_bits,
                                  Compare comp) {  //  unary comparison function
+  using value_type =
+      typename std::iterator_traits<RandomAccessIterator>::value_type;
   if (first >= last) {
     return;
   }
 
-  std::vector<typename std::iterator_traits<RandomAccessIterator>::value_type>
-      tmp(last - first);  // NOLINT
+  auto source_filled = 1;
+  auto const n_entries =
+      std::make_unsigned_t<decltype(last - first)>(last - first);
+  std::vector<value_type> tmp(n_entries);
   auto begin = tmp.begin();
   auto end = tmp.end();
 
@@ -32,7 +36,12 @@ template <std::random_access_iterator RandomAccessIterator, typename Compare>
     std::uint64_t counts[0x100]{};
     for (auto it = first; it != last; ++it) {
       ++counts[comp(*it) >> shift & 0xFF];
+
     }
+    if (counts[std::invoke(comp, *first) >> shift & 0xFF] == n_entries) {
+      continue;
+    }
+
     for (std::uint64_t i = 0, j = 0; i < 0x100; j += counts[i++]) {
       buckets[i] = j;
     }
@@ -41,9 +50,10 @@ template <std::random_access_iterator RandomAccessIterator, typename Compare>
     }
     std::swap(begin, first);
     std::swap(end, last);
+    source_filled ^= 1;
   }
 
-  if (shift / 8 & 1) {  // copy the sorted array for odd cases
+  if (!source_filled) {  // copy the sorted array for odd cases
     for (; first != last; ++first, ++begin) {
       *begin = *first;
     }

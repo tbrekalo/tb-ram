@@ -130,7 +130,7 @@ void MinimizerEngine::Minimize(
               return std::make_pair(0, 0);
             }
 
-            RadixSort(std::span(minimizers[i]), k_ * 2, Kmer::SortByValue);
+            RadixSort(std::span(minimizers[i]), k_ * 2, &Kmer::value);
             minimizers[i].emplace_back(-1, -1);  // stop dummy
 
             std::size_t num_origins = 0;
@@ -266,7 +266,7 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
   std::uint64_t mask = index_.size() - 1;
   std::uint32_t prev = 0;
 
-  RadixSort(std::span(sketch), k_ * 2, Kmer::SortByValue);
+  RadixSort(std::span(sketch), k_ * 2, &Kmer::value);
   sketch.emplace_back(-1, sequence->inflated_len << 1);  // stop dummy
   std::vector<Hit> to_add, hits;
 
@@ -329,8 +329,8 @@ std::vector<biosoup::Overlap> MinimizerEngine::Map(
     return std::vector<biosoup::Overlap>{};
   }
 
-  RadixSort(std::span(lhs_sketch), k_ * 2, Kmer::SortByValue);
-  RadixSort(std::span(rhs_sketch), k_ * 2, Kmer::SortByValue);
+  RadixSort(std::span(lhs_sketch), k_ * 2, &Kmer::value);
+  RadixSort(std::span(rhs_sketch), k_ * 2, &Kmer::value);
 
   std::uint64_t rhs_id = rhs->id;
 
@@ -545,9 +545,9 @@ std::vector<MinimizerEngine::Kmer> MinimizerEngine::Minimize(
 
   dst.resize(n);
   if (minhash) {
-    RadixSort(std::span(dst), k_ * 2, Kmer::SortByValue);
+    RadixSort(std::span(dst), k_ * 2, &Kmer::value);
     dst.resize(sequence->inflated_len / k_);
-    RadixSort(std::span(dst), 64, Kmer::SortByOrigin);
+    RadixSort(std::span(dst), 64, &Kmer::origin);
   }
 
   return dst;

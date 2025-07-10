@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "biosoup/nucleic_acid.hpp"
@@ -58,7 +57,6 @@ class MinimizerEngine {
 
  private:
   struct Kmer {
-   public:
     Kmer() = default;
     Kmer(std::uint64_t value, std::uint64_t origin)
         : value(value), origin(origin) {}
@@ -73,16 +71,11 @@ class MinimizerEngine {
 
     bool strand() const { return origin & 1; }
 
-    static std::uint64_t SortByValue(const Kmer& kmer) { return kmer.value; }
-
-    static std::uint64_t SortByOrigin(const Kmer& kmer) { return kmer.origin; }
-
     std::uint64_t value;
     std::uint64_t origin;
   };
 
   struct Match {
-   public:
     Match() = default;
     Match(std::uint64_t group, std::uint64_t positions)
         : group(group), positions(positions) {}
@@ -101,11 +94,6 @@ class MinimizerEngine {
 
     std::uint32_t rhs_position() const {
       return static_cast<std::uint32_t>(positions);
-    }
-
-    static std::uint64_t SortByGroup(const Match& match) { return match.group; }
-    static std::uint64_t SortByPositions(const Match& match) {
-      return match.positions;
     }
 
     std::uint64_t group;

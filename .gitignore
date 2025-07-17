@@ -3,3 +3,4 @@ build*
 data
 perf*
 .gdb_history
+.venv

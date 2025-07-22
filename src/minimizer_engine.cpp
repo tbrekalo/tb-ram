@@ -57,13 +57,14 @@ template <class T, class Compare>
 MinimizerEngine::MinimizerEngine(
     std::shared_ptr<thread_pool::ThreadPool> thread_pool, std::uint32_t k,
     std::uint32_t w, std::uint32_t bandwidth, std::uint32_t chain,
-    std::uint32_t matches, std::uint32_t gap)
+    std::uint32_t matches, std::uint32_t gap, std::uint32_t retain)
     : k_(std::min(std::max(k, 1U), 31U)),
       w_(w),
       bandwidth_(bandwidth),
       chain_(chain),
       matches_(matches),
       gap_(gap),
+      retain_(1U + retain),
       occurrence_(-1),
       index_(1U << std::min(14U, 2 * k_)),
       thread_pool_(thread_pool ? thread_pool
@@ -377,7 +378,7 @@ std::vector<biosoup::Overlap> MinimizerEngine::Chain(
   std::vector<std::pair<std::uint64_t, std::uint64_t>> intervals;
   for (std::uint64_t i = 1, j = 0; i < matches.size(); ++i) {  // NOLINT
     if (matches[i].group - matches[j].group > bandwidth_) {
-      if (i - j >= 4) {
+      if (i - j >= chain_) {
         if (!intervals.empty() && intervals.back().second > j) {  // extend
           intervals.back().second = i;
         } else {  // new
@@ -391,7 +392,7 @@ std::vector<biosoup::Overlap> MinimizerEngine::Chain(
     }
   }
 
-  std::vector<biosoup::Overlap> dst;
+  std::unordered_map<std::uint32_t, std::vector<biosoup::Overlap>> buffer;
   for (const auto& it : intervals) {
     std::uint64_t j = it.first;
     std::uint64_t i = it.second;
@@ -458,7 +459,7 @@ std::vector<biosoup::Overlap> MinimizerEngine::Chain(
           continue;
         }
 
-        dst.emplace_back(
+        buffer[matches[j].rhs_id()].emplace_back(
             lhs_id, matches[j + indices[l]].lhs_position(),
             k_ + matches[j + indices[k - 1]].lhs_position(),
             matches[j].rhs_id(),
@@ -472,6 +473,16 @@ std::vector<biosoup::Overlap> MinimizerEngine::Chain(
       }
     }
   }
+  std::vector<biosoup::Overlap> dst;
+  for (auto& [_, overlaps] : buffer) {
+    if (overlaps.size() > retain_) {
+      std::ranges::sort(overlaps, std::greater<>{}, &biosoup::Overlap::score);
+      overlaps.resize(retain_);
+    }
+
+    dst.insert(dst.end(), overlaps.begin(), overlaps.end());
+  }
+
   return dst;
 }
 

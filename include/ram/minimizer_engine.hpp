@@ -21,7 +21,7 @@ class MinimizerEngine {
       std::uint32_t k = 15,  // element of [1, 31]
       std::uint32_t w = 5, std::uint32_t bandwidth = 500,
       std::uint32_t chain = 4, std::uint32_t matches = 100,
-      std::uint32_t gap = 10000);
+      std::uint32_t gap = 10000, std::uint32_t retain = 5);
 
   MinimizerEngine(const MinimizerEngine&) = delete;
   MinimizerEngine& operator=(const MinimizerEngine&) = delete;
@@ -139,7 +139,8 @@ class MinimizerEngine {
   std::uint32_t bandwidth_;
   std::uint32_t chain_;
   std::uint32_t matches_;
-  std::uint64_t gap_;
+  std::uint32_t gap_;
+  std::uint32_t retain_;
   std::uint32_t occurrence_;
   std::vector<Index> index_;
   std::shared_ptr<thread_pool::ThreadPool> thread_pool_;

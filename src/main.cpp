@@ -99,7 +99,7 @@ void Help() {
          "      maximal gap between minimizer hits in a chain\n"
          "    --retain <int>\n"
          "      default: 5\n"
-         "      max number of secondary alignments"
+         "      max number of secondary chains"
          "    --minhash\n"
          "      use only a portion of all minimizers\n"
          "    -t, --threads <int>\n"

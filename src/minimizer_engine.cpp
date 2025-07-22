@@ -5,9 +5,12 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <span>
 #include <stdexcept>
 #include <vector>
+
+#include "biosoup/overlap.hpp"
 
 namespace ram {
 
@@ -51,6 +54,31 @@ template <class T, class Compare>
     std::ranges::copy(to_sort, source.begin());
   }
 }
+
+class OverlapTournament {
+  std::vector<biosoup::Overlap> data_;
+
+ public:
+  explicit OverlapTournament(std::uint32_t n) { data_.reserve(n + 1); }
+
+  void emplace_back(auto&&... args) {
+    data_.emplace_back(std::forward<decltype(args)>(args)...);
+    std::int32_t i = std::ssize(data_) - 1, j = std::ssize(data_) - 2;
+    for (; j >= 0 && data_[j].score < data_[i].score; --i, --j) {
+      std::swap(data_[j], data_[i]);
+    }
+
+    if (data_.size() == data_.capacity()) {
+      data_.pop_back();
+    }
+  }
+
+  void clear() { data_.clear(); }
+  void flush(std::output_iterator<biosoup::Overlap> auto result) {
+    std::move(data_.begin(), data_.end(), result);
+    clear();
+  }
+};
 
 }  // namespace
 
@@ -375,6 +403,7 @@ std::vector<biosoup::Overlap> MinimizerEngine::Chain(
   RadixSort(std::span(matches), 64, &Match::group);
   matches.emplace_back(-1, -1);  // stop dummy
 
+  std::vector<biosoup::Overlap> dst;
   std::vector<std::pair<std::uint64_t, std::uint64_t>> intervals;
   for (std::uint64_t i = 1, j = 0; i < matches.size(); ++i) {  // NOLINT
     if (matches[i].group - matches[j].group > bandwidth_) {
@@ -392,10 +421,20 @@ std::vector<biosoup::Overlap> MinimizerEngine::Chain(
     }
   }
 
-  std::unordered_map<std::uint32_t, std::vector<biosoup::Overlap>> buffer;
+  if (intervals.empty()) {
+    return dst;
+  }
+
+  thread_local OverlapTournament tournament(retain_);
+  std::uint32_t active_rhs_id = matches[intervals.front().first].rhs_id();
+
   for (const auto& it : intervals) {
     std::uint64_t j = it.first;
     std::uint64_t i = it.second;
+    if (matches[j].rhs_id() != active_rhs_id) {
+      tournament.flush(std::back_inserter(dst));
+      active_rhs_id = matches[j].rhs_id();
+    }
 
     if (i - j < chain_) {
       continue;
@@ -459,7 +498,7 @@ std::vector<biosoup::Overlap> MinimizerEngine::Chain(
           continue;
         }
 
-        buffer[matches[j].rhs_id()].emplace_back(
+        tournament.emplace_back(
             lhs_id, matches[j + indices[l]].lhs_position(),
             k_ + matches[j + indices[k - 1]].lhs_position(),
             matches[j].rhs_id(),
@@ -473,16 +512,8 @@ std::vector<biosoup::Overlap> MinimizerEngine::Chain(
       }
     }
   }
-  std::vector<biosoup::Overlap> dst;
-  for (auto& [_, overlaps] : buffer) {
-    if (overlaps.size() > retain_) {
-      std::ranges::sort(overlaps, std::greater<>{}, &biosoup::Overlap::score);
-      overlaps.resize(retain_);
-    }
 
-    dst.insert(dst.end(), overlaps.begin(), overlaps.end());
-  }
-
+  tournament.flush(std::back_inserter(dst));
   return dst;
 }
 

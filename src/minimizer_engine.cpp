@@ -20,15 +20,13 @@ template <class T, class Compare>
     return;
   }
 
-
-  alignas(8) std::uint64_t counts[0x100]{};
-
   std::vector<T> buffer(source.size());
   auto to_sort = std::span(source);
   auto sorted = std::span(buffer);
 
   std::uint8_t shift = 0;
-  std::uint64_t buckets[0x100]{};  // 256 b
+  std::uint64_t counts[0x100]{};
+  std::uint64_t buckets[0x100]{};
   for (; shift < max_bits; shift += 8) {
     std::memset(counts, 0, sizeof(counts));
     for (auto it : to_sort) {

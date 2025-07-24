@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -34,8 +35,7 @@ class MinimizerEngine {
   // transform set of sequences to minimizer index
   // minhash = pick only the smallest sequence->data.size() / k minimizers
   void Minimize(
-      std::vector<std::unique_ptr<biosoup::NucleicAcid>>::const_iterator first,
-      std::vector<std::unique_ptr<biosoup::NucleicAcid>>::const_iterator last,
+      std::span<std::unique_ptr<biosoup::NucleicAcid> const> sequences,
       bool minhash = false);
 
   // set occurrence frequency threshold

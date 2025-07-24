@@ -230,7 +230,7 @@ int main(int argc, char** argv) {
 
     timer.Start();
 
-    minimizer_engine.Minimize(targets.begin(), targets.end(), minhash);
+    minimizer_engine.Minimize(targets, minhash);
     minimizer_engine.Filter(frequency);
 
     std::cerr << "[ram::] minimized targets " << std::fixed << timer.Stop()

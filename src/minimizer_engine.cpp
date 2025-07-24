@@ -3,12 +3,7 @@
 #include "ram/minimizer_engine.hpp"
 
 #include <algorithm>
-#include <cstdint>
-#include <cstring>
 #include <iterator>
-#include <span>
-#include <stdexcept>
-#include <vector>
 
 #include "biosoup/overlap.hpp"
 
@@ -114,36 +109,35 @@ std::uint32_t MinimizerEngine::Index::Find(std::uint64_t key,
 }
 
 void MinimizerEngine::Minimize(
-    std::vector<std::unique_ptr<biosoup::NucleicAcid>>::const_iterator first,
-    std::vector<std::unique_ptr<biosoup::NucleicAcid>>::const_iterator last,
+    std::span<std::unique_ptr<biosoup::NucleicAcid> const> sequences,
     bool minhash) {
   for (auto& it : index_) {
     it.origins.clear();
     it.locator.clear();
   }
 
-  if (first >= last) {
+  if (sequences.empty()) {
     return;
   }
 
-  std::vector<std::vector<Kmer>> minimizers(index_.size());
+  std::vector<std::vector<Kmer>> indices(index_.size());
   {
     std::uint64_t mask = index_.size() - 1;
 
-    while (first != last) {
+    for (std::uint32_t i = 0; i < sequences.size();) {
       std::size_t batch_size = 0;
       std::vector<std::future<std::vector<Kmer>>> futures;
-      for (; first != last && batch_size < 50000000; ++first) {
-        batch_size += (*first)->inflated_len;
+      for (; i != sequences.size() && batch_size < 50000000; ++i) {
+        batch_size += sequences[i]->inflated_len;
         futures.emplace_back(thread_pool_->Submit(
-            [&](decltype(first) it) -> std::vector<Kmer> {
-              return Minimize(*it, minhash);
+            [&](std::uint32_t idx) -> std::vector<Kmer> {
+              return Minimize(sequences[idx], minhash);
             },
-            first));
+            i));
       }
       for (auto& it : futures) {
         for (const auto& jt : it.get()) {
-          auto& m = minimizers[jt.value & mask];
+          auto& m = indices[jt.value & mask];
           if (m.capacity() == m.size()) {
             m.reserve(m.capacity() * 1.5);
           }
@@ -153,62 +147,58 @@ void MinimizerEngine::Minimize(
     }
   }
 
-  {
-    std::vector<std::future<std::pair<std::size_t, std::size_t>>> futures;
-    for (std::uint32_t i = 0; i < minimizers.size(); ++i) {
-      futures.emplace_back(thread_pool_->Submit(
-          [&](std::uint32_t i) -> std::pair<std::size_t, std::size_t> {
-            if (minimizers[i].empty()) {
-              return std::make_pair(0, 0);
-            }
-
-            RadixSort(std::span(minimizers[i]), k_ * 2, &Kmer::value);
-            minimizers[i].emplace_back(-1, -1);  // stop dummy
-
-            std::size_t num_origins = 0;
-            std::size_t num_keys = 0;
-
-            for (std::uint64_t j = 1, c = 1; j < minimizers[i].size();
-                 ++j, ++c) {  // NOLINT
-              if (minimizers[i][j - 1].value != minimizers[i][j].value) {
-                if (c > 1) {
-                  num_origins += c;
-                }
-                ++num_keys;
-                c = 0;
-              }
-            }
-
-            return std::make_pair(num_origins, num_keys);
-          },
-          i));
+  auto index_kmers = [](std::vector<Kmer> source,
+                        std::uint32_t kmer_length) -> Index {
+    Index index;
+    if (source.empty()) {
+      return index;
     }
-    for (std::uint32_t i = 0; i < minimizers.size(); ++i) {
-      auto num_entries = futures[i].get();
-      if (minimizers[i].empty()) {
-        continue;
-      }
 
-      index_[i].origins.reserve(num_entries.first);
-      index_[i].locator.reserve(num_entries.second);
+    RadixSort(std::span(source), kmer_length * 2, &Kmer::value);
+    source.emplace_back(-1, -1);  // stop dummy
 
-      for (std::uint64_t j = 1, c = 1; j < minimizers[i].size(); ++j, ++c) {
-        if (minimizers[i][j - 1].value != minimizers[i][j].value) {
-          if (c == 1) {
-            index_[i].locator.emplace(minimizers[i][j - 1].value << 1 | 1,
-                                      minimizers[i][j - 1].origin);
-          } else {
-            index_[i].locator.emplace(minimizers[i][j - 1].value << 1,
-                                      index_[i].origins.size() << 32 | c);
-            for (std::uint64_t k = j - c; k < j; ++k) {
-              index_[i].origins.emplace_back(minimizers[i][k].origin);
-            }
-          }
-          c = 0;
+    std::size_t num_origins = 0;
+    std::size_t num_keys = 0;
+
+    for (std::uint64_t j = 1, c = 1; j < source.size(); ++j, ++c) {  // NOLINT
+      if (source[j - 1].value != source[j].value) {
+        if (c > 1) {
+          num_origins += c;
         }
+        ++num_keys;
+        c = 0;
       }
+    }
 
-      std::vector<Kmer>().swap(minimizers[i]);
+    index.origins.reserve(num_origins);
+    index.locator.reserve(num_keys);
+
+    for (std::uint64_t j = 1, c = 1; j < source.size(); ++j, ++c) {
+      if (source[j - 1].value != source[j].value) {
+        if (c == 1) {
+          index.locator.emplace(source[j - 1].value << 1 | 1,
+                                source[j - 1].origin);
+        } else {
+          index.locator.emplace(source[j - 1].value << 1,
+                                index.origins.size() << 32 | c);
+          for (std::uint64_t k = j - c; k < j; ++k) {
+            index.origins.emplace_back(source[k].origin);
+          }
+        }
+        c = 0;
+      }
+    }
+    return index;
+  };
+
+  {
+    std::vector<std::future<Index>> futures;
+    for (std::uint32_t i = 0; i < indices.size(); ++i) {
+      futures.emplace_back(thread_pool_->Submit(index_kmers, indices[i], k_));
+    }
+
+    for (std::uint32_t i = 0; i < indices.size(); ++i) {
+      index_[i] = futures[i].get();
     }
   }
 }
